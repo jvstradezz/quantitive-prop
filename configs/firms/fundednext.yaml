@@ -1,0 +1,276 @@
+# FundedNext (CFD) — основная фирма (D-001). Источник: /mnt/project-files/PROP_RULES_FundedNext_FundingPips.md
+# §2 и §5, состояние на 2026-10-28 (D-005). Числа — только из этого файла; неизвестное — null + open_items.
+# Мерж этого файла — только с ОК Nikita (инструкции §4).
+
+# Служебные якоря (ключи с «_» загрузчик отбрасывает).
+_trade_rules: &trade_rules          # общие для всех Stellar, PROP_RULES §2.1, §2.6
+  quick_strike: {hold_sec: 30, warn_profit_share_pct: 20, breach_profit_share_pct: 30}
+  max_trades_day: 200
+  max_messages_day: 2000
+  account_disabled_messages: 15000
+  settlement_window_server: ["00:00", "02:00"]
+  news: {window_min: 5, challenge: allowed, funded: profit_factor, funded_profit_counted_pct: 40}
+  weekend_holding_challenge: true
+  weekend_holding_funded: true
+  max_lot_per_order: null            # «no imposed limits»; потолок задаёт Risk Rule и плечо
+  open_items: []
+
+_ea: &ea
+  allowed: "yes"
+  platforms: [MT4, MT5]
+  max_account_size_exclusive: 50000
+  third_party_ea: allowed
+  vps: private_dedicated_ip
+  unique_strategy_per_account: true
+  forbidden_in_ea: [telegram, whatsapp, challenge_passing_ea]
+  notes: >
+    EA только MT4/MT5 (cTrader и Match-Trader — нельзя). От $50K и выше — только ручная торговля,
+    включая утилиты, двигающие SL/TP. Нельзя переходить EA ↔ ручная торговля между челленджем и funded.
+    VPS: приватный с выделенным IP; VPS брокера, общий VPS и VPS на $50K+ запрещены.
+  open_items: [O-07]
+
+_risk_rule: &risk_rule              # PROP_RULES §2.6: funded и Instant
+  max_open_risk_pct: 3
+  sl_required: true
+  second_violation_limit_pct: 1
+
+_daily_loss: &daily_loss            # PROP_RULES §2.1: от начального баланса + прибыль дня == B_SOD − pct·B0
+  reference: sod_balance
+  amount_basis: initial
+  check: realtime_equity
+  includes_floating: true
+  includes_swaps_commissions: true
+  reset_time_server: "00:00"
+
+_lev_2step_challenge: &lev_2step_challenge {fx: 100, indices: 25, commodities: 25, crypto: 1, stocks: 2}
+_lev_2step_funded: &lev_2step_funded {fx: 100, indices: 15, commodities: 15, crypto: 1, stocks: 2}
+
+_ea_addon: &ea_addon
+  id: ea
+  label: "EA Add-On"
+  fee_usd: 5
+  refundable: false
+
+id: fundednext
+name: FundedNext
+role: primary
+asset_type: cfd
+platforms: [MT4, MT5, cTrader, MatchTrader]
+bot_platform: MT5                    # D-003
+source_doc: PROP_RULES_FundedNext_FundingPips.md
+source_date: 2026-10-28
+server_time:
+  winter_utc_offset: 2
+  summer_utc_offset: 3
+  dst_calendar: us                   # ДОПУЩЕНИЕ: правило США, сервер = ET + 7 ч (DECISIONS O-10)
+  day_reset: "00:00"
+  verified: false
+  open_items: [O-10]
+notes: >
+  Общий лимит капитала на funded — $300 000 суммарно (Lite — $200 000, Instant — $20 000), на одну
+  EA-стратегию — $300 000. KYC — после челленджа (Instant — после покупки). Тройной своп: среда
+  (FX, сырьё), пятница (индексы, крипта, акции). Прибыль, непропорционально сделанная в окне
+  00:00–02:00 сервера, может быть аннулирована. Copy trading — только между своими Challenge-счетами.
+  Запрещены: HFT, tick scalping, grid, любой арбитраж, latency trading, хедж между счетами,
+  account rolling, one-sided betting, hyperactivity; мартингейл с сеткой считаем запрещённым.
+programs:
+  # ---------------------------------------------------------------- Stellar 2-Step (PROP_RULES §2.2)
+  - id: fn-stellar-2step
+    name: "Stellar 2-Step"
+    template: cfd_2step
+    sizes:
+      - {size_usd: 6000, fee_usd: 59.99, ea_allowed: true}
+      - {size_usd: 15000, fee_usd: 119.99, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 199.99, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 299.99, ea_allowed: false}
+      - {size_usd: 100000, fee_usd: 549.99, ea_allowed: false}
+      - {size_usd: 200000, fee_usd: 999.99, ea_allowed: false, open_items: [O-02]}
+    addons:
+      - {<<: *ea_addon, applies_to_sizes: [6000, 15000, 25000]}
+      - {id: no_min_days, label: "Add-On «No Min Days»", fee_usd: null, refundable: false,
+         applies_to_sizes: [6000, 15000, 25000], open_items: [O-16]}
+      - {id: vps_ea, label: "Add-On «VPS & EA»", fee_usd: null, refundable: false, open_items: [O-18]}
+    ea: *ea
+    phases:
+      - {name: phase1, target_pct: 8, min_days: 5, max_days: null, leverage: *lev_2step_challenge}
+      - {name: phase2, target_pct: 5, min_days: 5, max_days: null, leverage: *lev_2step_challenge}
+    daily_loss: {pct: 5, <<: *daily_loss}
+    max_loss: {type: static, pct: 10}
+    inactivity_days: 60
+    inactivity_open_items: [O-09]
+    trade_rules: *trade_rules
+    funded:
+      leverage: *lev_2step_funded
+      risk_rule: *risk_rule
+      open_items: []
+    commission: {fx_per_lot_usd: 5, energy_per_lot_usd: 5, metals_pct: 0.0016, indices_usd: 0}
+    payout_options:
+      - id: standard
+        label: "Основной: через 21 день, затем каждые 14"
+        split_pct: 80
+        first_after_days: 21
+        cycle_days: 14
+        open_items: [O-11]
+      - id: three_day
+        label: "3 прибыльных дня (≥1%)"
+        split_pct: 60
+        profitable_days: [3, 1.0]
+      - id: on_demand
+        label: "On-Demand (рост ≥2%, лучший день ≤40%)"
+        split_pct: 90
+        min_profit_pct: 2
+        consistency_best_day_max_pct: 40
+        open_items: [O-08]
+    fee_refund_on_payout: 1
+    data_source: official
+    verified: true
+    open_items: [O-02]
+
+  # ---------------------------------------------------------------- Stellar 1-Step (PROP_RULES §2.3)
+  - id: fn-stellar-1step
+    name: "Stellar 1-Step"
+    template: cfd_1step
+    sizes:
+      - {size_usd: 6000, fee_usd: 65.99, ea_allowed: true}
+      - {size_usd: 15000, fee_usd: 129.99, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 219.99, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 329.99, ea_allowed: false}
+      - {size_usd: 100000, fee_usd: 569.99, ea_allowed: false}
+      - {size_usd: 200000, fee_usd: 1099.99, ea_allowed: false}
+    addons:
+      - {<<: *ea_addon, applies_to_sizes: [6000, 15000, 25000]}
+      - {id: vps_ea, label: "Add-On «VPS & EA»", fee_usd: null, refundable: false, open_items: [O-18]}
+    ea: *ea
+    phases:
+      - name: phase1
+        target_pct: 10
+        min_days: 2
+        max_days: null
+        leverage: {fx: 30, indices: 10, commodities: 15}
+    daily_loss: {pct: 3, <<: *daily_loss}
+    max_loss: {type: static, pct: 6}
+    inactivity_days: 60
+    inactivity_open_items: [O-09]
+    trade_rules: *trade_rules
+    funded:
+      leverage: {fx: 30, indices: 10, commodities: 10}
+      risk_rule: *risk_rule
+      open_items: []
+    commission: {fx_per_lot_usd: 5, energy_per_lot_usd: 5, metals_pct: 0.0016, indices_usd: 0}
+    payout_options:
+      - id: standard
+        label: "Каждые 5 рабочих дней"
+        split_pct: 80
+        split_upgrade: {pct: 90, condition: "после Scale-Up"}
+        cycle_business_days: 5
+        open_items: [O-11]
+    fee_refund_on_payout: 3
+    data_source: official
+    verified: true
+    notes: "Прочие правила — как у 2-Step (PROP_RULES §5). Для бота хуже 2-Step: daily 3% плохо переносит серии убытков."
+    open_items: []
+
+  # ---------------------------------------------------------------- Stellar Lite (PROP_RULES §2.4)
+  - id: fn-stellar-lite
+    name: "Stellar Lite"
+    template: cfd_2step
+    sizes:
+      - {size_usd: 5000, fee_usd: 32.99, ea_allowed: true}
+      - {size_usd: 10000, fee_usd: 59.99, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 139.99, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 229.99, ea_allowed: false}
+      - {size_usd: 100000, fee_usd: 399.99, ea_allowed: false}
+      - {size_usd: 200000, fee_usd: 798.99, ea_allowed: false}
+    addons:
+      - {<<: *ea_addon, applies_to_sizes: [5000, 10000, 25000]}
+      - {id: extended_max_loss, label: "Add-On: общий лимит до 10%", fee_usd: null, refundable: false,
+         open_items: [O-18]}
+      - {id: vps_ea, label: "Add-On «VPS & EA»", fee_usd: null, refundable: false, open_items: [O-18]}
+    ea: *ea
+    phases:
+      # min_days = 5 — консервативный вариант (O-01); оптимистичный (2) лежит в min_days_override варианта cycle_10d
+      - {name: phase1, target_pct: 8, min_days: 5, max_days: null, leverage: *lev_2step_challenge}
+      - {name: phase2, target_pct: 4, min_days: 5, max_days: null, leverage: *lev_2step_challenge}
+    daily_loss: {pct: 4, <<: *daily_loss}
+    max_loss: {type: static, pct: 8, alt_pct: 10}
+    inactivity_days: 60
+    inactivity_open_items: [O-09]
+    trade_rules: *trade_rules
+    funded:
+      leverage: *lev_2step_funded
+      risk_rule: *risk_rule
+      open_items: []
+    commission: {fx_per_lot_usd: 7, energy_per_lot_usd: 7, metals_pct: 0.0018, indices_usd: 0}
+    payout_options:
+      - id: cycle_10d
+        label: "Цикл 10 рабочих дней"
+        split_pct: 80
+        cycle_business_days: 10
+        min_days_override: 2             # PROP_RULES §2.4: 2 при 10-дневном цикле (покупки с 12.10.2026)
+        open_items: [O-01, O-11]
+      - id: three_day
+        label: "3-Day"
+        split_pct: 60
+        notes: "Условия 3-Day (число дней, порог) в источнике не указаны."
+        open_items: [O-01]
+      - id: on_demand
+        label: "On-Demand (правило 40%)"
+        split_pct: 90
+        consistency_best_day_max_pct: 40
+        open_items: [O-01, O-08]
+    fee_refund_on_payout: 3
+    data_source: official
+    verified: true
+    notes: "Прочие правила — как у 2-Step (PROP_RULES §5). Плечо — как в 2-Step."
+    open_items: [O-01]
+
+  # ---------------------------------------------------------------- Stellar Instant (PROP_RULES §2.5)
+  - id: fn-stellar-instant
+    name: "Stellar Instant"
+    template: cfd_instant_balance_trailing
+    sizes:
+      - {size_usd: 2000, fee_usd: 59.99, ea_allowed: true}
+      - {size_usd: 5000, fee_usd: 149.99, ea_allowed: true}
+      - {size_usd: 10000, fee_usd: 299.99, ea_allowed: true}
+      - {size_usd: 20000, fee_usd: 599.99, ea_allowed: true}
+    addons:
+      - {<<: *ea_addon, applies_to_sizes: [2000, 5000, 10000, 20000]}
+      - {id: vps_ea, label: "Add-On «VPS & EA»", fee_usd: null, refundable: false, open_items: [O-18]}
+    ea: *ea
+    phases: []
+    daily_loss: null                   # дневного лимита нет
+    max_loss:
+      type: trailing
+      pct: 6
+      trail_source: balance_realtime   # «6% trailing от максимального баланса», фиксируется на начальном
+      lock_level: initial_balance
+      check: realtime_equity
+      payout_floor_behavior: never_lowers
+      open_items: [O-12]
+    inactivity_days: 60
+    inactivity_open_items: [O-09]
+    trade_rules: *trade_rules
+    funded:
+      leverage: {fx: 30, indices: 5, commodities: 7.5, crypto: 1}
+      risk_rule: *risk_rule
+      open_items: []
+    commission: {fx_per_lot_usd: 7, energy_per_lot_usd: 7, metals_pct: 0.0016, indices_usd: 0}
+    payout_options:
+      - id: on_demand
+        label: "On-Demand при росте +5%"
+        split_pct: 70
+        split_upgrade: {pct: 80, condition: "с уровня 3 (что такое уровень — не указано)"}
+        min_profit_pct: 5
+        open_items: [O-11]
+      - id: cycle_14d
+        label: "Каждые 14 дней при росте ≥1%"
+        split_pct: 70
+        split_upgrade: {pct: 80, condition: "с уровня 3 (что такое уровень — не указано)"}
+        cycle_days: 14
+        min_profit_pct: 1
+        open_items: [O-11]
+    fee_refund_on_payout: null         # возврата взноса нет
+    data_source: official
+    verified: true
+    notes: "Цели, мин. дни и consistency нет. Максимальная аллокация — $20 000 суммарно. Risk Rule действует на Instant (PROP_RULES §2.6)."
+    open_items: [O-12]

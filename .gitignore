@@ -1,3 +1,14 @@
 # Данные и артефакты прогонов не коммитим (см. docs/ARCHITECTURE.md §8)
 data/*
 !data/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+*.egg-info/

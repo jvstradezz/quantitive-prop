@@ -1,0 +1,18 @@
+# Шаблон: futures-стиль, трейлинг по пику эквити (включая плавающую прибыль). Числа те же, что у
+# futures_eod_trailing, — условные: источника для intraday-версии нет.
+id: futures_intraday_trailing
+name: "Futures, внутридневной трейлинг"
+style: futures
+reference_balance_usd: 50000
+values_source: placeholder
+values_source_ref: null
+notes: "Цифры скопированы с futures_eod_trailing (IDEA-0001), правило трейлинга другое — для сравнения EOD vs intraday."
+phases:
+  - {name: eval, target_pct: 6, min_days: 0, max_days: null}
+daily_loss: null
+max_loss:
+  type: trailing
+  abs_usd: 2000
+  trail_source: equity_realtime
+  lock_level: initial_balance
+  check: realtime_equity

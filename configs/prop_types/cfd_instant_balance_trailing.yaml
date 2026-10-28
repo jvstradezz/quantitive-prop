@@ -1,0 +1,18 @@
+# Шаблон: CFD Instant, трейлинг по балансу. Числа — как у FundedNext Stellar Instant (PROP_RULES §2.5).
+id: cfd_instant_balance_trailing
+name: "CFD Instant, трейлинг по балансу"
+style: cfd
+values_source: firm_program
+values_source_ref: "FundedNext Stellar Instant, PROP_RULES §2.5"
+phases: []
+daily_loss: null
+max_loss:
+  type: trailing
+  pct: 6
+  trail_source: balance_realtime
+  lock_level: initial_balance
+  check: realtime_equity
+  payout_floor_behavior: never_lowers
+  open_items: [O-12]
+funded:
+  risk_rule: {max_open_risk_pct: 3, sl_required: true, second_violation_limit_pct: 1}

@@ -1,0 +1,11 @@
+# Шаблон: CFD 2-Step. Числа — как у FundedNext Stellar 2-Step (PROP_RULES §2.2).
+id: cfd_2step
+name: "CFD 2-Step"
+style: cfd
+values_source: firm_program
+values_source_ref: "FundedNext Stellar 2-Step, PROP_RULES §2.2"
+phases:
+  - {name: phase1, target_pct: 8, min_days: 5, max_days: null}
+  - {name: phase2, target_pct: 5, min_days: 5, max_days: null}
+daily_loss: {pct: 5, reference: sod_balance, amount_basis: initial, check: realtime_equity, includes_floating: true, includes_swaps_commissions: true, reset_time_server: "00:00"}
+max_loss: {type: static, pct: 10}
