@@ -1,0 +1,30 @@
+# FundedNext MT5, US30, Dow Jones 30. Источник — скрин «Спецификация» от Nikita, 2026-10-28.
+# Время — сервер FN (ET + 7 ч, DECISIONS O-10). Котировки 01:00–24:00, торговля 01:15–24:00.
+symbol: US30
+firm: fundednext
+asset_class: indices
+contract_size: 10
+point: 0.01
+profit_currency: USD
+point_value_usd: 0.1
+min_lot: 0.01
+lot_step: 0.01
+max_lot_per_order: 40
+commission:
+  per_lot_usd: 0
+# Спред в MT5 «Плавающий», числа в спеке нет: заполнить по Dukascopy (T5), консервативное из двух (O-04).
+spread_by_hour: []
+swap_long: -232.0775
+swap_short: -996.06
+swap_unit: points  # short −996.06 по скрину, сверить (O-04)
+triple_swap_day: fri
+sessions:
+  - {day: mon, start: "01:15", end: "00:00"}
+  - {day: tue, start: "01:15", end: "00:00"}
+  - {day: wed, start: "01:15", end: "00:00"}
+  - {day: thu, start: "01:15", end: "00:00"}
+  - {day: fri, start: "01:15", end: "00:00"}
+server_tz: fundednext
+dukascopy_symbol: null       # сопоставит T5
+source: mt5_specification
+open_items: [O-04]

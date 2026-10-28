@@ -161,8 +161,8 @@ def test_instant_has_no_daily_loss_and_trails_balance(firms: dict[str, Firm]) ->
 def test_server_time(firms: dict[str, Firm]) -> None:
     fn = firms["fundednext"].server_time
     assert (fn.winter_utc_offset, fn.summer_utc_offset, fn.dst_calendar) == (2, 3, "us")
-    assert not fn.verified
-    assert "O-10" in fn.open_items
+    assert fn.verified
+    assert fn.open_items == []
     fp = firms["fundingpips"].server_time
     assert (fp.winter_utc_offset, fp.summer_utc_offset, fp.dst_calendar) == (3, 3, None)
     assert not fp.verified

@@ -1,0 +1,31 @@
+# FundedNext MT5, GER30, Germany 40 Cash index. Источник — скрин «Спецификация» от Nikita, 2026-10-28.
+# Время — сервер FN (ET + 7 ч, DECISIONS O-10). Котировки 10:00–24:00, торговля 10:15–24:00.
+symbol: GER30
+firm: fundednext
+asset_class: indices
+contract_size: 10
+point: 0.01
+profit_currency: EUR
+point_value_usd: null
+point_value_profit_ccy: 0.12  # «Цена тика» по скрину, но 10 × 0.01 = 0.1 EUR — расхождение, O-20
+min_lot: 0.01
+lot_step: 0.01
+max_lot_per_order: 40
+commission:
+  per_lot_usd: 0
+# Спред в MT5 «Плавающий», числа в спеке нет: заполнить по Dukascopy (T5), консервативное из двух (O-04).
+spread_by_hour: []
+swap_long: -450.584
+swap_short: -115.044
+swap_unit: points
+triple_swap_day: fri
+sessions:
+  - {day: mon, start: "10:15", end: "00:00"}
+  - {day: tue, start: "10:15", end: "00:00"}
+  - {day: wed, start: "10:15", end: "00:00"}
+  - {day: thu, start: "10:15", end: "00:00"}
+  - {day: fri, start: "10:15", end: "00:00"}
+server_tz: fundednext
+dukascopy_symbol: null       # сопоставит T5
+source: mt5_specification
+open_items: [O-04, O-20]

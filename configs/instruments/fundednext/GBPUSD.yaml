@@ -1,0 +1,31 @@
+# FundedNext MT5, GBPUSD, Great Britain Pound vs US Dollar. Источник — скрин «Спецификация» от Nikita, 2026-10-28.
+# Время — сервер FN (ET + 7 ч, DECISIONS O-10). Котировки 00:00–24:00, торговля 00:15–23:55.
+symbol: GBPUSD
+firm: fundednext
+asset_class: fx
+contract_size: 100000
+point: 1e-05
+profit_currency: USD
+point_value_usd: 1
+min_lot: 0.01
+lot_step: 0.01
+max_lot_per_order: 40
+commission:
+  per_lot_usd: 7         # как в спеке; ставка Lite (скрин со счёта Lite $25K); 2-Step/1-Step $5 — из правил, не подтверждено, O-19
+commission_on: entry # «немедленно за объём сделки, сделки входа»
+# Спред в MT5 «Плавающий», числа в спеке нет: заполнить по Dukascopy (T5), консервативное из двух (O-04).
+spread_by_hour: []
+swap_long: -17.13
+swap_short: -2.977
+swap_unit: points
+triple_swap_day: wed
+sessions:
+  - {day: mon, start: "00:15", end: "23:55"}
+  - {day: tue, start: "00:15", end: "23:55"}
+  - {day: wed, start: "00:15", end: "23:55"}
+  - {day: thu, start: "00:15", end: "23:55"}
+  - {day: fri, start: "00:15", end: "23:55"}
+server_tz: fundednext
+dukascopy_symbol: null       # сопоставит T5
+source: mt5_specification
+open_items: [O-04, O-19]
