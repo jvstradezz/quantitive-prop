@@ -105,9 +105,7 @@ def _payout_spec(opt: PayoutOption, news_counted: float) -> PayoutSpec | None:
         split=opt.split_pct / 100,
         first_after_days=opt.first_after_days if opt.first_after_days is not None else -1,
         cycle_days=opt.cycle_days if opt.cycle_days is not None else -1,
-        cycle_business_days=opt.cycle_business_days
-        if opt.cycle_business_days is not None
-        else -1,
+        cycle_business_days=opt.cycle_business_days if opt.cycle_business_days is not None else -1,
         min_profit=opt.min_profit_pct / 100
         if opt.min_profit_pct is not None
         else DEFAULT_MIN_PROFIT,

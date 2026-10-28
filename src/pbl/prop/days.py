@@ -143,9 +143,7 @@ class DayTable:
         return int((self.n_opened > 0).sum())
 
     def years(self) -> I64:
-        return np.asarray(
-            [dt.date.fromordinal(int(d)).year for d in self.dates], dtype=np.int64
-        )
+        return np.asarray([dt.date.fromordinal(int(d)).year for d in self.dates], dtype=np.int64)
 
     def take(self, idx: I64) -> DayTable:
         """Подтаблица (или псевдо-история) из дней `idx` в заданном порядке."""
@@ -377,3 +375,59 @@ def day_table_from_trades(
     lot_specs: Mapping[str, LotSpec] | None = None,
 ) -> DayTable:
     return build_day_table(trades_to_arrays(trades, server, lot_specs))
+
+
+def table_from_paths(
+    paths: Sequence[Sequence[float]],
+    *,
+    start: dt.date = dt.date(2024, 1, 1),
+    n_opened: Sequence[int] | None = None,
+    risk_open_max: Sequence[float] | None = None,
+    single_loss: Sequence[float] | None = None,
+    news_pos: Sequence[float] | None = None,
+    eps: float = 0.0,
+) -> DayTable:
+    """Таблица дней из готовых путей (в R от `E_SOD`): ручные сценарии и тесты правил.
+
+    Путь дня начинается с 0; результат дня = последняя точка. День торговый, если в пути
+    больше одной точки (или задано `n_opened`). κ = 1 (спеки лота нет).
+    """
+    nd = len(paths)
+    full = [[0.0, *p] if not p or p[0] != 0.0 else list(p) for p in paths]
+    off = np.zeros(nd + 1, dtype=np.int64)
+    np.cumsum([len(p) for p in full], out=off[1:])
+    vals = np.asarray([v for p in full for v in p], dtype=np.float64)
+    db = np.asarray([p[-1] for p in full])
+    opened = np.asarray(
+        n_opened if n_opened is not None else [1 if len(p) > 1 else 0 for p in full], np.int64
+    )
+    dates = _weekday_calendar(start.toordinal(), start.toordinal() + nd * 2 + 7)[:nd]
+
+    def arr(x: Sequence[float] | None, default: float) -> F64:
+        return np.asarray(x if x is not None else [default] * nd, dtype=np.float64)
+
+    zeros = np.zeros(nd)
+    return DayTable(
+        dates=dates,
+        n_opened=opened,
+        db=db,
+        b_max=np.maximum(0.0, db),
+        c_in=zeros.copy(),
+        c_out=zeros.copy(),
+        path_off=off,
+        path_val=vals,
+        risk_open_max=arr(risk_open_max, 1.0),
+        news_pos=arr(news_pos, 0.0),
+        single_loss=arr(single_loss, 0.0),
+        cost_spread=zeros.copy(),
+        cost_comm=zeros.copy(),
+        cost_swap=zeros.copy(),
+        cost_slip=zeros.copy(),
+        gross=db.copy(),
+        trade_day=np.zeros(0, dtype=np.int64),
+        trade_dv=np.zeros(0),
+        trade_min_lot=np.zeros(0),
+        trade_lot_step=np.zeros(0),
+        eps=eps,
+        n_trades=int(opened.sum()),
+    )

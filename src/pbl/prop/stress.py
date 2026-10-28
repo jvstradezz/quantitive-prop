@@ -14,7 +14,10 @@ from pbl.prop.days import DayTable, TradeArrays
 
 
 def costs_x(ta: TradeArrays, m: float) -> TradeArrays:
-    """Спред и проскальзывание × m: `r' = r_net − (m − 1)(spread + slip)`; путь сдвигается с входа."""
+    """Спред и проскальзывание × m: `r' = r_net − (m − 1)(spread + slip)`.
+
+    Путь сделки сдвигается на ту же величину с момента входа.
+    """
     extra = (m - 1.0) * (ta.cost_spread + ta.cost_slip)
     return ta.with_(
         r_net=ta.r_net - extra,
@@ -114,9 +117,7 @@ STRESSES: tuple[StressSpec, ...] = (
 )
 
 
-def apply_trade_stress(
-    ta: TradeArrays, spec: StressSpec, rng: np.random.Generator
-) -> TradeArrays:
+def apply_trade_stress(ta: TradeArrays, spec: StressSpec, rng: np.random.Generator) -> TradeArrays:
     out = ta
     if spec.cost_mult != 1.0:
         out = costs_x(out, spec.cost_mult)

@@ -105,6 +105,7 @@ def _kernel(
     out_pay_sum: F64,
     out_npay: I32,
     out_refund: npt.NDArray[np.bool_],
+    out_bal: F64,
 ) -> None:
     n_paths = idx.shape[0]
     width = idx.shape[1]
@@ -435,6 +436,7 @@ def _kernel(
         out_pay_sum[p] = pay_sum
         out_npay[p] = npay
         out_refund[p] = refund
+        out_bal[p] = bal
 
 
 kernel = cast(Callable[..., None], numba.njit(cache=True, nogil=True)(_kernel))
@@ -492,6 +494,7 @@ class PathResults:
     pay_sum: F64  # сумма выплат до горизонта EV, доля B0
     npay: I32
     refund: npt.NDArray[np.bool_]
+    bal: F64  # баланс в конце пути (доля B0)
     start_slot: int
     stop_slot: int
 
@@ -590,7 +593,9 @@ def simulate(
     """
     settings = settings or SimSettings()
     if len(risk.f) != rules.n_slots:
-        raise ValueError(f"нужно {rules.n_slots} значений риска (фазы + funded), дано {len(risk.f)}")
+        raise ValueError(
+            f"нужно {rules.n_slots} значений риска (фазы + funded), дано {len(risk.f)}"
+        )
     last = rules.n_phases if rules.payout is not None else rules.n_phases - 1
     stop = last if stop_slot is None else stop_slot
     if stop < start_slot:
@@ -610,6 +615,7 @@ def simulate(
         "pay_sum": np.zeros(n),
         "npay": np.zeros(n, np.int32),
         "refund": np.zeros(n, np.bool_),
+        "bal": np.zeros(n),
     }
     fn = kernel if jit else _kernel
     fn(
@@ -639,5 +645,6 @@ def simulate(
         out["pay_sum"],
         out["npay"],
         out["refund"],
+        out["bal"],
     )
     return PathResults(**out, start_slot=start_slot, stop_slot=stop)

@@ -87,8 +87,8 @@ def summarize(res: PathResults, rules: RuleSet) -> Stats:
     mean_pay1 = float(res.pay1_amt[paid].mean() * size) if paid.any() else 0.0
     if has_payout and cost is not None and full:
         ev1 = -cost + float(res.pay1_amt.mean() * size) + p1 * refund1
-        ev180 = -cost + float(res.pay_sum.mean() * size) + rules.refund_usd * float(
-            res.refund.mean()
+        ev180 = (
+            -cost + float(res.pay_sum.mean() * size) + rules.refund_usd * float(res.refund.mean())
         )
         denom = mean_pay1 + refund1
         breakeven = cost / denom if denom > 0 else math.inf

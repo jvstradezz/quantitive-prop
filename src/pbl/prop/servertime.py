@@ -26,7 +26,7 @@ def _last_sunday(year: int, month: int) -> dt.date:
 def dst_window_utc(year: int, calendar: str) -> tuple[dt.datetime, dt.datetime]:
     """Интервал летнего времени [start, end) в UTC для календаря `us` или `eu`."""
     if calendar == "us":
-        # 2:00 местного: второе воскресенье марта (EST, UTC−5) → первое воскресенье ноября (EDT, UTC−4)
+        # 2:00 местного: второе вс марта (EST, UTC−5) → первое вс ноября (EDT, UTC−4)
         start = dt.datetime.combine(_nth_sunday(year, 3, 2), dt.time(7), dt.UTC)
         end = dt.datetime.combine(_nth_sunday(year, 11, 1), dt.time(6), dt.UTC)
     elif calendar == "eu":
