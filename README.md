@@ -1,1 +1,1 @@
-# quantititve-prop
+# quantitive-prop
