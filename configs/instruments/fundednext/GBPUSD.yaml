@@ -11,7 +11,7 @@ min_lot: 0.01
 lot_step: 0.01
 max_lot_per_order: 40
 commission:
-  per_lot_usd: 7         # как в спеке; совпадает с Lite/Instant, 2-Step/1-Step — $5, см. O-19
+  per_lot_usd: 7         # как в спеке; ставка Lite (скрин со счёта Lite $25K); 2-Step/1-Step $5 — из правил, не подтверждено, O-19
 commission_on: entry # «немедленно за объём сделки, сделки входа»
 # Спред в MT5 «Плавающий», числа в спеке нет: заполнить по Dukascopy (T5), консервативное из двух (O-04).
 spread_by_hour: []
