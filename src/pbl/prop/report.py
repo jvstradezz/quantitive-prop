@@ -53,6 +53,7 @@ class PropReport:
     warnings: tuple[str, ...]
     costs: dict[str, float]
     recommended: Row | None
+    worst_period: str = ""
     manifest: dict[str, object] = field(default_factory=dict)
 
 
@@ -64,6 +65,13 @@ def _git_sha() -> str:
         return out.stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+
+
+PLAN_KEY = "fn-stellar-2step/25k/standard"  # D-002
+
+
+def _rank(r: Row) -> tuple[bool, float]:
+    return (r.stats.ev1 > 0, r.stats.objective)
 
 
 def recommend(rows: Sequence[Row]) -> Row | None:
@@ -105,11 +113,13 @@ def run_report(
     top_k: int = 3,
     ea_only: bool = True,
     program_ids: Sequence[str] | None = None,
+    detail_keys: Sequence[str] = (PLAN_KEY,),
 ) -> PropReport:
     """Полный прогон: каждая программа фирмы × размер × вариант выплат + шаблоны.
 
     Дневные записи строятся под сервер каждой фирмы; шаблоны — под сервер первой фирмы.
-    Стрессы и внешний бутстрэп — для `top_k` лучших строк и рекомендации.
+    Стрессы и внешний бутстрэп — для лучшего предложения каждой из `top_k` лучших программ,
+    рекомендации и строк `detail_keys` (по умолчанию — план D-002: FN 2-Step $25K).
     """
     cfg = cfg or MCConfig()
     if not firms:
@@ -155,13 +165,16 @@ def run_report(
 
     rec = recommend(rows)
     # стрессы и неопределённость по выборке — для лучших строк
-    ranked = sorted(
-        [r for r in rows if not r.rules.is_template],
-        key=lambda r: (r.stats.ev1 > 0, r.stats.objective),
-        reverse=True,
-    )[:top_k]
-    if rec is not None and rec.rules.key not in {r.rules.key for r in ranked}:
-        ranked.append(rec)
+    ranked: list[Row] = []
+    seen: set[str | None] = set()
+    for r in sorted([r for r in rows if not r.rules.is_template], key=_rank, reverse=True):
+        if r.rules.program_id not in seen and len(seen) < top_k:
+            seen.add(r.rules.program_id)
+            ranked.append(r)
+    extra = [r for r in rows if r.rules.key in detail_keys]
+    for r in [*([rec] if rec is not None else []), *extra]:
+        if r.rules.key not in {x.rules.key for x in ranked}:
+            ranked.append(r)
     detailed: dict[str, Row] = {}
     for r in ranked:
         eng = engines[r.rules.firm or firms[0].id]
@@ -212,6 +225,7 @@ def run_report(
         warnings=tuple(dict.fromkeys(warnings)),
         costs=cost_breakdown(trades),
         recommended=rec,
+        worst_period=worst_label,
         manifest=manifest,
     )
 
@@ -394,15 +408,13 @@ def to_markdown(rep: PropReport) -> str:
 
     lines += [*_costs_section(rep), ""]
 
-    firm_rows = sorted(
-        [r for r in rep.rows if not r.rules.is_template],
-        key=lambda r: -r.stats.objective,
-    )
+    firm_rows = sorted([r for r in rep.rows if not r.rules.is_template], key=_rank, reverse=True)
     lines += [
         "## Программы фирм (EA-доступные размеры)",
         "",
         "P(1-я выплата) жирным — с интервалом по выборке (внешний бутстрэп), иначе — шум MC. "
-        "Провалы — доли всех путей. Риск подобран на тех же данных: P слегка оптимистична.",
+        "Провалы — доли всех путей. Риск подобран на тех же данных: P слегка оптимистична. "
+        "Сначала строки с EV₁ > 0.",
         "",
         *program_table(firm_rows),
         "",
@@ -430,7 +442,11 @@ def to_markdown(rep: PropReport) -> str:
             cells = [f"{_p(s.objective)} · {_usd(s.ev1)}" for _, s in r.stresses]
             cells.append(f"{_p(r.no_guards.objective)} · {_usd(r.no_guards.ev1)}")
             lines.append(f"| {r.rules.label} | " + " | ".join(cells) + " |")
-        lines += ["", "В ячейке: P(1-я выплата) · EV₁.", ""]
+        lines += [
+            "",
+            f"В ячейке: P(1-я выплата) · EV₁. Худшие годы: {rep.worst_period}.",
+            "",
+        ]
 
     if rep.recommended is not None and rep.recommended.opt.curves:
         rec = rep.recommended

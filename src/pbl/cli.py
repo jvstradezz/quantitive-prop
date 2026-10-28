@@ -79,12 +79,16 @@ def prop_run(
     seed: Annotated[int, typer.Option()] = 42,
     block: Annotated[float | None, typer.Option(help="длина блока; по умолчанию авто")] = None,
     top: Annotated[int, typer.Option(help="сколько лучших программ стрессовать")] = 3,
+    detail: Annotated[
+        list[str] | None,
+        typer.Option(help="ключ строки для стрессов, например fn-stellar-2step/25k/standard"),
+    ] = None,
 ) -> None:
     """MC по всем программам фирм и шаблонам: таблица, стрессы, рекомендация → out/."""
     from pbl.config import load_firms, load_prop_types
     from pbl.prop.engine import MCConfig
     from pbl.prop.io import read_trades_csv
-    from pbl.prop.report import run_report, write_report
+    from pbl.prop.report import PLAN_KEY, run_report, write_report
 
     trades = read_trades_csv(trades_csv)
     firms = load_firms()
@@ -103,6 +107,7 @@ def prop_run(
         cfg,
         top_k=top,
         program_ids=program,
+        detail_keys=detail or [PLAN_KEY],
     )
     path = write_report(rep, out)
     typer.echo(f"отчёт: {path}")
