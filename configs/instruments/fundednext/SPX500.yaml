@@ -12,8 +12,31 @@ lot_step: 0.01
 max_lot_per_order: 40
 commission:
   per_lot_usd: 0
-# Спред в MT5 «Плавающий», числа в спеке нет: заполнить по Dukascopy (T5), консервативное из двух (O-04).
-spread_by_hour: []
+# Спред в MT5 «Плавающий», числа в спеке нет: профиль по Dukascopy (T5, O-04).
+spread_by_hour:  # пункты MT5, час сервера FN; typical=медиана, worst=p99 (Dukascopy)
+  - {hour: 1, typical: 51.9, worst: 73.1}
+  - {hour: 2, typical: 51.6, worst: 73.1}
+  - {hour: 3, typical: 51.9, worst: 73.1}
+  - {hour: 4, typical: 51.6, worst: 73.1}
+  - {hour: 5, typical: 51.6, worst: 73.1}
+  - {hour: 6, typical: 51.6, worst: 73.1}
+  - {hour: 7, typical: 51.9, worst: 73.1}
+  - {hour: 8, typical: 51.6, worst: 73.1}
+  - {hour: 9, typical: 51.6, worst: 73.1}
+  - {hour: 10, typical: 51.9, worst: 73.1}
+  - {hour: 11, typical: 51.9, worst: 73.1}
+  - {hour: 12, typical: 51.6, worst: 72.8}
+  - {hour: 13, typical: 51.6, worst: 73.1}
+  - {hour: 14, typical: 51.6, worst: 72.8}
+  - {hour: 15, typical: 51.6, worst: 90.6}
+  - {hour: 16, typical: 51.3, worst: 72.8}
+  - {hour: 17, typical: 51.3, worst: 72.8}
+  - {hour: 18, typical: 51.3, worst: 72.5}
+  - {hour: 19, typical: 51.3, worst: 72.5}
+  - {hour: 20, typical: 51.3, worst: 72.5}
+  - {hour: 21, typical: 51.6, worst: 72.2}
+  - {hour: 22, typical: 51.3, worst: 72.1}
+  - {hour: 23, typical: 51.3, worst: 72.5}
 swap_long: -134.6925
 swap_short: -36.63
 swap_unit: points
@@ -25,6 +48,6 @@ sessions:
   - {day: thu, start: "01:15", end: "00:00"}
   - {day: fri, start: "01:15", end: "00:00"}
 server_tz: fundednext
-dukascopy_symbol: null       # сопоставит T5
+dukascopy_symbol: USA500IDXUSD
 source: mt5_specification
 open_items: [O-04]
