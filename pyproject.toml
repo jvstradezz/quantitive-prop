@@ -5,6 +5,7 @@ description = "Конвейер поиска стратегий и ботов д
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "numba>=0.68.1",
     "numpy>=2.5.4",
     "polars>=2.1.0",
     "pydantic>=2.9,<3",
@@ -59,3 +60,7 @@ warn_required_dynamic_aliases = true
 testpaths = ["tests"]
 addopts = "-q -ra --strict-markers"
 filterwarnings = ["error"]
+
+[[tool.mypy.overrides]]
+module = ["numba", "numba.*"]
+ignore_missing_imports = true
