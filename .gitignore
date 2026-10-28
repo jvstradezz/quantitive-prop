@@ -1,0 +1,3 @@
+# Данные и артефакты прогонов не коммитим (см. docs/ARCHITECTURE.md §8)
+data/*
+!data/.gitkeep
