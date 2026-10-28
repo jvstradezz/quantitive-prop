@@ -62,10 +62,10 @@ source_date: 2026-10-28
 server_time:
   winter_utc_offset: 2
   summer_utc_offset: 3
-  dst_calendar: us                   # ДОПУЩЕНИЕ: правило США, сервер = ET + 7 ч (DECISIONS O-10)
+  dst_calendar: us                   # правило США, сервер = ET + 7 ч; проверено 2026-10-28 (DECISIONS O-10)
   day_reset: "00:00"
-  verified: false
-  open_items: [O-10]
+  verified: true
+  open_items: []
 notes: >
   Общий лимит капитала на funded — $300 000 суммарно (Lite — $200 000, Instant — $20 000), на одну
   EA-стратегию — $300 000. KYC — после челленджа (Instant — после покупки). Тройной своп: среда

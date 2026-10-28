@@ -1,0 +1,31 @@
+# FundedNext MT5, XAUUSD, Gold vs US-Dollar. Источник — скрин «Спецификация» от Nikita, 2026-10-28.
+# Время — сервер FN (ET + 7 ч, DECISIONS O-10). Котировки 01:00–24:00, торговля 01:15–24:00.
+symbol: XAUUSD
+firm: fundednext
+asset_class: metals
+contract_size: 100
+point: 0.01
+profit_currency: USD
+point_value_usd: 1
+min_lot: 0.01
+lot_step: 0.01
+max_lot_per_order: 50
+commission:
+  turnover_pct: 0.0018   # % от объёма сделки (в USD за лот). Совпадает с Lite; 2-Step/1-Step — 0.0016, см. O-19
+commission_on: entry # «немедленно за объём сделки, сделки входа»
+# Спред в MT5 «Плавающий», числа в спеке нет: заполнить по Dukascopy (T5), консервативное из двух (O-04).
+spread_by_hour: []
+swap_long: -107.151
+swap_short: -46.917
+swap_unit: points
+triple_swap_day: wed
+sessions:
+  - {day: mon, start: "01:15", end: "00:00"}
+  - {day: tue, start: "01:15", end: "00:00"}
+  - {day: wed, start: "01:15", end: "00:00"}
+  - {day: thu, start: "01:15", end: "00:00"}
+  - {day: fri, start: "01:15", end: "00:00"}
+server_tz: fundednext
+dukascopy_symbol: null       # сопоставит T5
+source: mt5_specification
+open_items: [O-04, O-19]
