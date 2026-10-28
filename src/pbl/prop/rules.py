@@ -67,6 +67,7 @@ class RuleSet:
     firm: str | None = None
     program_id: str | None = None
     is_template: bool = False
+    verified: bool = True
     notes: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -141,6 +142,7 @@ def compile_rules(
     firm: str | None = None,
     program_id: str | None = None,
     is_template: bool = False,
+    verified: bool = True,
 ) -> RuleSet:
     notes: list[str] = []
     min_days = [p.min_days for p in rules.phases]
@@ -216,11 +218,14 @@ def compile_rules(
         firm=firm,
         program_id=program_id,
         is_template=is_template,
+        verified=verified,
         notes=tuple(notes),
     )
 
 
-def compile_offer(firm_id: str, program: Program, offer: ProgramOffer) -> RuleSet:
+def compile_offer(
+    firm_id: str, program: Program, offer: ProgramOffer, firm_name: str | None = None
+) -> RuleSet:
     """Программа фирмы × размер × вариант выплат. Стоимость = взнос + EA Add-On (D-002)."""
     size = offer.size
     addon = sum(
@@ -232,7 +237,8 @@ def compile_offer(firm_id: str, program: Program, offer: ProgramOffer) -> RuleSe
     return compile_rules(
         program,
         key=f"{program.id}/{size.size_usd // 1000}k/{offer.payout.id}",
-        label=f"{program.name} ${size.size_usd // 1000}K · {offer.payout.label}",
+        label=f"{firm_name + ' ' if firm_name else ''}{program.name} ${size.size_usd // 1000}K"
+        f" · {offer.payout.label}",
         size_usd=float(size.size_usd),
         payout=offer.payout,
         fee_usd=size.fee_usd,
@@ -240,6 +246,7 @@ def compile_offer(firm_id: str, program: Program, offer: ProgramOffer) -> RuleSe
         refund_on_payout=program.fee_refund_on_payout,
         firm=firm_id,
         program_id=program.id,
+        verified=program.verified,
     )
 
 

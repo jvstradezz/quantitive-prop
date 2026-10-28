@@ -148,7 +148,7 @@ def run_report(
                 skipped.append(f"{firm.name} {prog.name}: нет вариантов выплат в источнике")
                 continue
             for offer in offers:
-                add(eng, compile_offer(firm.id, prog, offer))
+                add(eng, compile_offer(firm.id, prog, offer, firm.name))
     base_engine = engine_for(firms[0])
     for tpl in templates:
         add(base_engine, compile_template(tpl))
@@ -324,10 +324,15 @@ def _sentence(rep: PropReport) -> str:
     if others:
         o = others[0]
         second = f" Вторая — {o.rules.label}: P {_p(o.stats.p1)}, EV₁ {_usd(o.stats.ev1)}."
+    unverified = (
+        " Правила этой программы не сверены с официальным источником — сверить до покупки."
+        if not rec.rules.verified
+        else ""
+    )
     return (
         f"Лучше всего — {rec.rules.label}: P(1-я выплата) {_p(st.p1)}{ci_txt}, "
         f"EV на взнос {_usd(st.ev1)}, риск {_risk(rec)}. Главная причина провалов — "
-        f"{main[0]} ({share:.0%} провалов).{second}"
+        f"{main[0]} ({share:.0%} провалов).{second}{unverified}"
     )
 
 
