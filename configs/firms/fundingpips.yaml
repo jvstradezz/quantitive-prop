@@ -1,0 +1,245 @@
+# FundingPips (CFD) — запасная фирма (D-001). Источник: PROP_RULES_FundedNext_FundingPips.md §3 и §5,
+# состояние на 2026-10-28. ВСЕ ДАННЫЕ ИЗ ОБЗОРОВ, официальный сайт не открылся (DECISIONS O-03):
+# verified: false у каждой программы, сверить при покупке.
+# Мерж этого файла — только с ОК Nikita (инструкции §4).
+
+_trade_rules: &trade_rules          # PROP_RULES §3.1, общее для 2-Step Standard/Pro/Flex и 1-Step Flex
+  quick_strike: null
+  max_trades_day: null
+  max_messages_day: null
+  account_disabled_messages: null
+  settlement_window_server: null
+  news:
+    window_min: 5
+    challenge: allowed               # «holding ok, news exploitation prohibited» (PROP_RULES §5)
+    funded: deduct_profit            # сделки в окне ±5 мин от restricted-новости: прибыль вычитается
+  weekend_holding_challenge: true
+  weekend_holding_funded: false      # с 29.01.2026 позиции закрываются в пятницу
+  max_lot_per_order: 20              # крипта — 1 (не моделируем)
+  open_items: [O-03]
+
+_ea: &ea
+  allowed: own_ea_with_proof
+  platforms: []                      # платформы EA в источнике не указаны
+  max_account_size_exclusive: null
+  third_party_ea: trade_manager_only
+  vps: prohibited
+  unique_strategy_per_account: false
+  forbidden_in_ea: []
+  notes: >
+    Свой EA разрешён при доказательстве авторства (код, история версий, созвон; скомпилированного
+    файла недостаточно). Чужие EA — только менеджер сделок и риска. VPS и VPN запрещены (по обзорам,
+    сверить с официальной статьёй), регион IP постоянный: бот только с домашнего ПК.
+  open_items: [O-03, O-05]
+
+_daily_loss: &daily_loss
+  reference: max_sod_balance_equity
+  amount_basis: min_initial_reference   # O-13: меньшая из двух баз — консервативно
+  check: realtime_equity
+  includes_floating: true
+  includes_swaps_commissions: true
+  reset_time_server: "00:00"
+
+_lev_challenge: &lev_challenge {fx: 100, metals: 30, energy: 10, indices: 20, crypto: 2}
+_commission: &commission {fx_per_lot_usd: 5, metals_per_lot_usd: 5, energy_per_lot_usd: 0, indices_usd: 0}
+
+_striking: &striking_gt25k {single_idea_floating_loss_pct: 1.2, applies_from_size_exclusive: 25000, strikes_to_close: 4}
+_profit_conc: &profit_conc {single_idea_pct_of_target: 60, profitable_days_required: 4, min_day_pct: 0.5, applies_from_size: 25000}
+
+_payouts_standard: &payouts_standard
+  - {id: weekly, label: "Weekly", split_pct: 60, cycle_days: 7}
+  - {id: biweekly, label: "Bi-weekly", split_pct: 80, cycle_days: 14}
+  - id: on_demand
+    label: "On-Demand"
+    split_pct: 90
+    consistency_best_day_max_pct: 35
+  - id: monthly
+    label: "Monthly"
+    split_pct: 100
+    cycle_days: 30                   # ДОПУЩЕНИЕ: календарный месяц ≈ 30 дней
+    consistency_best_day_max_pct: 35
+    notes: "cycle_days = 30 — допущение, в источнике «monthly»."
+
+id: fundingpips
+name: FundingPips
+role: backup
+asset_type: cfd
+platforms: [MT5, cTrader, MatchTrader]   # cTrader +$20; MT4 в источнике не указана
+bot_platform: MT5
+source_doc: PROP_RULES_FundedNext_FundingPips.md
+source_date: 2026-10-28
+server_time:
+  winter_utc_offset: 3
+  summer_utc_offset: 3
+  dst_calendar: null                 # фикс. UTC+3 без перехода — по обзору, не проверено
+  day_reset: "00:00"
+  verified: false
+  open_items: [O-03]
+notes: >
+  Источники — обзоры CryptoSlate, Consistry, ProptradingVibes (сентябрь–октябрь 2026). Запрещены:
+  gap trading, HFT, latency-арбитраж, tick scalping, хедж (в т.ч. между счетами), арбитраж
+  long-short/reverse, churning, торговля за другого, входящий копитрейдинг.
+programs:
+  # ---------------------------------------------------------------- 2-Step Standard (PROP_RULES §3.1, §5)
+  - id: fp-2step-standard
+    name: "2-Step Standard"
+    template: cfd_2step
+    sizes:
+      - {size_usd: 5000, fee_usd: 34, ea_allowed: true}
+      - {size_usd: 10000, fee_usd: 63, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 168, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 285, ea_allowed: true}
+      - {size_usd: 100000, fee_usd: 544, ea_allowed: true}
+    ea: *ea
+    phases:
+      - {name: phase1, target_pct: 8, min_days: 3, max_days: null, leverage: *lev_challenge}
+      - {name: phase2, target_pct: 5, min_days: 3, max_days: null, leverage: *lev_challenge}
+    daily_loss: {pct: 5, alt_pct: 3, alt_min_days: 0, <<: *daily_loss}
+    max_loss: {type: static, pct: 10}
+    inactivity_days: 30              # «30 дней без закрытой сделки = провал»
+    trade_rules: *trade_rules
+    funded:
+      leverage: null                 # металлы/индексы/энергия — ступенчато от лота (0.05 лота 1:50 … 0.5+ лота 1:5)
+      striking: *striking_gt25k
+      profit_concentration: *profit_conc
+      open_items: [O-03]
+    commission: *commission
+    payout_options: *payouts_standard
+    fee_refund_on_payout: 4
+    data_source: third_party_review
+    verified: false
+    notes: "Опция daily 3% при покупке: мин. дни 0 (alt_min_days)."
+    open_items: [O-03, O-13]
+
+  # ---------------------------------------------------------------- 2-Step Pro
+  - id: fp-2step-pro
+    name: "2-Step Pro"
+    template: cfd_2step
+    sizes:
+      - {size_usd: 5000, fee_usd: 29, ea_allowed: true}
+      - {size_usd: 10000, fee_usd: 55, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 134, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 224, ea_allowed: true}
+      - {size_usd: 100000, fee_usd: 422, ea_allowed: true}
+    ea: *ea
+    phases:
+      - {name: phase1, target_pct: 6, min_days: 0, max_days: null, leverage: *lev_challenge}
+      - {name: phase2, target_pct: 6, min_days: 0, max_days: null, leverage: *lev_challenge}
+    daily_loss: {pct: 3, <<: *daily_loss}
+    max_loss: {type: static, pct: 6}
+    inactivity_days: 30
+    trade_rules: *trade_rules
+    funded:
+      leverage: null
+      striking: *striking_gt25k
+      profit_concentration: *profit_conc
+      open_items: [O-03]
+    commission: *commission
+    payout_options:
+      - {id: weekly, label: "Weekly", split_pct: 80, cycle_days: 7}
+    fee_refund_on_payout: 4
+    data_source: third_party_review
+    verified: false
+    notes: "Прочие правила — «как у 2-Step Standard» (PROP_RULES §5): новости, выходные, лот, комиссия, Striking, возврат взноса."
+    open_items: [O-03, O-13]
+
+  # ---------------------------------------------------------------- 2-Step Flex
+  - id: fp-2step-flex
+    name: "2-Step Flex"
+    template: cfd_2step
+    sizes:
+      - {size_usd: 5000, fee_usd: 32, ea_allowed: true}
+      - {size_usd: 10000, fee_usd: 59, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 159, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 269, ea_allowed: true}
+      - {size_usd: 100000, fee_usd: 555, ea_allowed: true}
+    ea: *ea
+    phases:
+      - {name: phase1, target_pct: 10, min_days: 1, max_days: null, leverage: *lev_challenge}   # O-17
+      - {name: phase2, target_pct: 8, min_days: 1, max_days: null, leverage: *lev_challenge}
+    daily_loss: {pct: 4, <<: *daily_loss}
+    max_loss: {type: static, pct: 12}
+    inactivity_days: 30
+    trade_rules: *trade_rules
+    funded:
+      leverage: null
+      open_items: [O-03]
+    commission: *commission
+    payout_options: []               # в источнике для Flex не указаны
+    fee_refund_on_payout: null
+    data_source: third_party_review
+    verified: false
+    notes: >
+      Выплаты, возврат взноса, Striking и Profit Concentration для Flex в источнике не указаны.
+      В MONTE_CARLO §4.3 пустые ячейки читаются «как у Standard» — подставить после сверки с FP.
+    open_items: [O-03, O-13, O-17]
+
+  # ---------------------------------------------------------------- 1-Step Flex
+  - id: fp-1step-flex
+    name: "1-Step Flex"
+    template: cfd_1step
+    sizes:
+      - {size_usd: 5000, fee_usd: 66, ea_allowed: true}
+      - {size_usd: 10000, fee_usd: 99, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 211, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 313, ea_allowed: true}
+      - {size_usd: 100000, fee_usd: 569, ea_allowed: true}
+    ea: *ea
+    phases:
+      - {name: phase1, target_pct: 12, min_days: 0, max_days: null, leverage: *lev_challenge}
+    daily_loss: {pct: 3, alt_pct: 2, <<: *daily_loss}
+    max_loss: {type: static, pct: 12}
+    inactivity_days: 30
+    trade_rules: *trade_rules
+    funded:
+      leverage: null
+      striking: {single_idea_floating_loss_pct: 1, applies_from_size_exclusive: null, strikes_to_close: 4}
+      open_items: [O-03]
+    commission: *commission
+    payout_options: []               # в источнике для 1-Step Flex не указаны
+    fee_refund_on_payout: null
+    data_source: third_party_review
+    verified: false
+    notes: >
+      Выплаты и возврат взноса в источнике не указаны (см. примечание к 2-Step Flex). Striking: плавающий
+      убыток одной идеи > 1% (для всех размеров).
+    open_items: [O-03, O-13]
+
+  # ---------------------------------------------------------------- Zero (instant)
+  - id: fp-zero
+    name: "Zero"
+    template: cfd_instant_equity_trailing
+    sizes:
+      - {size_usd: 5000, fee_usd: 60, ea_allowed: true}
+      - {size_usd: 10000, fee_usd: 88, ea_allowed: true}
+      - {size_usd: 25000, fee_usd: 188, ea_allowed: true}
+      - {size_usd: 50000, fee_usd: 244, ea_allowed: true}
+      - {size_usd: 100000, fee_usd: 444, ea_allowed: true}
+    ea: *ea
+    phases: []
+    daily_loss: {pct: 3, <<: *daily_loss}
+    max_loss:
+      type: trailing
+      pct: 5
+      trail_source: equity_realtime  # от пика эквити
+      lock_level: initial_balance
+      lock_trigger_profit_pct: 5     # фиксируется на старте после +5%
+      check: realtime_equity
+    inactivity_days: 30
+    trade_rules:
+      <<: *trade_rules
+      news: {window_min: 10, challenge: prohibited, funded: prohibited}   # «запрет ±10 минут, жёсткое нарушение»
+      weekend_holding_challenge: false
+      weekend_holding_funded: false  # держать через выходные нельзя (нарушение)
+    funded:
+      leverage: null
+      open_items: [O-03]
+    commission: {fx_per_lot_usd: 7, metals_per_lot_usd: 7, energy_per_lot_usd: 0, indices_usd: 0}
+    payout_options: []               # в источнике не указаны
+    fee_refund_on_payout: null
+    data_source: third_party_review
+    verified: false
+    notes: >
+      Consistency на funded: лучший день ≤ 15% (условие выплаты, в payout_options пока не выражено).
+      Выплаты и возврат взноса в источнике не указаны.
+    open_items: [O-03, O-13]

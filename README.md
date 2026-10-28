@@ -16,3 +16,13 @@
 | [DESIGN](docs/DESIGN.md) | дизайн дашборда |
 | [ROADMAP](docs/ROADMAP.md) | вехи M0–M7 |
 | [DECISIONS](docs/DECISIONS.md) | решения, предложения на ОК, открытые вопросы |
+
+## Разработка
+
+```bash
+make sync    # uv sync --frozen, Python 3.12
+make check   # ruff + mypy + pytest
+pbl validate-configs   # все YAML в configs/ и research/registry/ по схемам
+```
+
+Схемы — `src/pbl/schemas/`, конфиги — `configs/` (правила фирм — `configs/firms/`, шаблоны типов пропов — `configs/prop_types/`).

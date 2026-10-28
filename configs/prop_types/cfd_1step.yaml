@@ -1,0 +1,11 @@
+# Шаблон: CFD 1-Step. Числа — как у FundedNext Stellar 1-Step (PROP_RULES §2.3). Шаблон нужен для
+# сравнения стратегии с типичными правилами; реальные программы — configs/firms/.
+id: cfd_1step
+name: "CFD 1-Step"
+style: cfd
+values_source: firm_program
+values_source_ref: "FundedNext Stellar 1-Step, PROP_RULES §2.3"
+phases:
+  - {name: phase1, target_pct: 10, min_days: 2, max_days: null}
+daily_loss: {pct: 3, reference: sod_balance, amount_basis: initial, check: realtime_equity, includes_floating: true, includes_swaps_commissions: true, reset_time_server: "00:00"}
+max_loss: {type: static, pct: 6}

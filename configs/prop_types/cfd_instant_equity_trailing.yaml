@@ -1,0 +1,15 @@
+# Шаблон: CFD Instant, трейлинг по эквити. Числа — как у FundingPips Zero (PROP_RULES §3.1; данные из обзоров, O-03).
+id: cfd_instant_equity_trailing
+name: "CFD Instant, трейлинг по эквити"
+style: cfd
+values_source: firm_program
+values_source_ref: "FundingPips Zero, PROP_RULES §3.1 (обзоры, не проверено)"
+phases: []
+daily_loss: {pct: 3, reference: max_sod_balance_equity, amount_basis: min_initial_reference, check: realtime_equity, includes_floating: true, includes_swaps_commissions: true, reset_time_server: "00:00"}
+max_loss:
+  type: trailing
+  pct: 5
+  trail_source: equity_realtime
+  lock_level: initial_balance
+  lock_trigger_profit_pct: 5
+  check: realtime_equity

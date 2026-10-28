@@ -1,0 +1,14 @@
+# Шаблон: CFD 3-Step. ЧИСЛА УСЛОВНЫЕ: ни у FundedNext, ни у FundingPips (по PROP_RULES) 3-Step нет,
+# источника для чисел нет. Форма — как 2-Step с третьей фазой; значения подтвердить или заменить (DECISIONS P-23).
+id: cfd_3step
+name: "CFD 3-Step"
+style: cfd
+values_source: placeholder
+values_source_ref: null
+notes: "Условные значения: цели 5/5/5%, мин. дни 3, лимиты как у 2-Step. Не взяты ни из какой программы."
+phases:
+  - {name: phase1, target_pct: 5, min_days: 3, max_days: null}
+  - {name: phase2, target_pct: 5, min_days: 3, max_days: null}
+  - {name: phase3, target_pct: 5, min_days: 3, max_days: null}
+daily_loss: {pct: 5, reference: sod_balance, amount_basis: initial, check: realtime_equity, includes_floating: true, includes_swaps_commissions: true, reset_time_server: "00:00"}
+max_loss: {type: static, pct: 10}

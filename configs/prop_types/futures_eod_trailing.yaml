@@ -1,0 +1,19 @@
+# Шаблон: futures-стиль, EOD-трейлинг. Эталон — отчёт автора бота в идее №1 (docs/IDEAS.md): счёт $50K,
+# цель +$3 000, EOD-трейлинг $2 000. Остальное (мин. дни, дневной лимит, офсет lock) неизвестно:
+# мин. дни = 0, дневного лимита нет, lock на B0 — условно.
+id: futures_eod_trailing
+name: "Futures, EOD-трейлинг"
+style: futures
+reference_balance_usd: 50000
+values_source: idea_report
+values_source_ref: "IDEA-0001: отчёт Sniper Range Bot V2 (MC 50k eval)"
+notes: "Цель 6% = $3 000 / $50K. Funded-фаза и выплаты у шаблона не заданы (нет источника)."
+phases:
+  - {name: eval, target_pct: 6, min_days: 0, max_days: null}
+daily_loss: null
+max_loss:
+  type: trailing
+  abs_usd: 2000
+  trail_source: balance_eod
+  lock_level: initial_balance
+  check: realtime_equity
