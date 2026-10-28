@@ -79,6 +79,16 @@ def report(
             + ", ".join(str(d) for d in q.missing_days[:30])
             + "\n"
         )
+        if q.gaps.height:
+            top = q.gaps.sort("minutes", descending=True).head(5)
+            detail.append(
+                "Самые длинные паузы (UTC): "
+                + "; ".join(
+                    f"{r['start']:%m-%d %H:%M}→{r['end']:%H:%M} ({r['minutes']} мин)"
+                    for r in top.iter_rows(named=True)
+                )
+                + "\n"
+            )
         prof = spread_profile(ticks, _point(sym))
         detail.append("| Час сервера FN | Тиков | typical, пункты | worst (p99), пункты |")
         detail.append("|---|---|---|---|")

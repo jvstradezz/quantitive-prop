@@ -35,8 +35,9 @@ def check_ticks(symbol: str, ticks: pl.DataFrame, expected_days: list[date]) -> 
             pl.DataFrame({"start": [], "end": [], "minutes": []}), "", "",
         )  # fmt: skip
     t = ticks.sort("ts", maintain_order=True)
-    days_with = set(t.select(pl.col("ts").dt.date().unique()).to_series().to_list())
+    all_days = set(t.select(pl.col("ts").dt.date().unique()).to_series().to_list())
     weekdays = [d for d in expected_days if d.weekday() < 5]
+    days_with = {d for d in all_days if d.weekday() < 5}  # воскресные вечера — не рабочие дни
     missing = [d for d in weekdays if d not in days_with]
     dups = t.height - t.unique(subset=["ts", "bid", "ask"]).height
     crossed = t.filter(pl.col("ask") < pl.col("bid")).height

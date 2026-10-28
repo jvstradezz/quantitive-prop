@@ -13,8 +13,31 @@ max_lot_per_order: 50
 commission:
   turnover_pct: 0.0018   # % от объёма сделки (в USD за лот). ставка Lite (скрин со счёта Lite $25K); 2-Step/1-Step 0.0016 — из правил, не подтверждено, O-19
 commission_on: entry # «немедленно за объём сделки, сделки входа»
-# Спред в MT5 «Плавающий», числа в спеке нет: заполнить по Dukascopy (T5), консервативное из двух (O-04).
-spread_by_hour: []
+# Спред в MT5 «Плавающий», числа в спеке нет: профиль по Dukascopy (T5, O-04).
+spread_by_hour:  # пункты MT5, час сервера FN; typical=медиана, worst=p99 (Dukascopy)
+  - {hour: 1, typical: 41.0, worst: 91.0}
+  - {hour: 2, typical: 34.0, worst: 64.0}
+  - {hour: 3, typical: 30.0, worst: 45.0}
+  - {hour: 4, typical: 30.0, worst: 47.0}
+  - {hour: 5, typical: 30.0, worst: 48.0}
+  - {hour: 6, typical: 30.0, worst: 45.0}
+  - {hour: 7, typical: 30.0, worst: 45.0}
+  - {hour: 8, typical: 30.0, worst: 45.0}
+  - {hour: 9, typical: 30.0, worst: 44.0}
+  - {hour: 10, typical: 30.0, worst: 30.0}
+  - {hour: 11, typical: 30.0, worst: 30.0}
+  - {hour: 12, typical: 30.0, worst: 30.0}
+  - {hour: 13, typical: 30.0, worst: 30.0}
+  - {hour: 14, typical: 30.0, worst: 30.0}
+  - {hour: 15, typical: 30.0, worst: 51.0}
+  - {hour: 16, typical: 30.0, worst: 30.0}
+  - {hour: 17, typical: 30.0, worst: 36.0}
+  - {hour: 18, typical: 30.0, worst: 30.0}
+  - {hour: 19, typical: 30.0, worst: 30.0}
+  - {hour: 20, typical: 30.0, worst: 30.0}
+  - {hour: 21, typical: 30.0, worst: 47.0}
+  - {hour: 22, typical: 30.0, worst: 30.0}
+  - {hour: 23, typical: 30.0, worst: 86.0}
 swap_long: -17.84
 swap_short: 0.71
 swap_unit: points
@@ -26,6 +49,6 @@ sessions:
   - {day: thu, start: "01:15", end: "00:00"}
   - {day: fri, start: "01:15", end: "00:00"}
 server_tz: fundednext
-dukascopy_symbol: null       # сопоставит T5
+dukascopy_symbol: XAGUSD
 source: mt5_specification
 open_items: [O-04, O-19]
