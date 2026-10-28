@@ -48,12 +48,28 @@ class InstrumentSpec(StrictModel):
     asset_class: AssetClass
     contract_size: float = Field(gt=0)
     point: float = Field(gt=0, description="размер пункта в единицах цены")
-    point_value_usd: float = Field(gt=0, description="стоимость пункта на 1 лот, $")
+    profit_currency: str = Field(default="USD", description="валюта прибыли по спеке MT5")
+    point_value_usd: float | None = Field(
+        default=None,
+        gt=0,
+        description="стоимость пункта на 1 лот, $; None — зависит от курса (не USD-прибыль)",
+    )
+    point_value_profit_ccy: float | None = Field(
+        default=None, gt=0, description="стоимость пункта на 1 лот в валюте прибыли"
+    )
     min_lot: float = Field(gt=0)
     lot_step: float = Field(gt=0)
     max_lot_per_order: float | None = Field(default=None, gt=0)
-    commission: CommissionSpec
-    spread_by_hour: list[SpreadProfile] = Field(min_length=1)
+    commission: CommissionSpec = Field(
+        description="как в спеке MT5 (счёт скрина); по программам — Firm.commission"
+    )
+    commission_on: Literal["entry", "entry_and_exit"] | None = Field(
+        default=None, description="когда MT5 списывает комиссию; None — комиссии нет или не ясно"
+    )
+    spread_by_hour: list[SpreadProfile] = Field(
+        default_factory=list,
+        description="пусто, пока спред плавающий и не измерен; тогда обязателен open_items",
+    )
     swap_long: float
     swap_short: float
     swap_unit: Literal["points", "usd_per_lot", "pct_annual"]
@@ -68,9 +84,15 @@ class InstrumentSpec(StrictModel):
 
     @model_validator(mode="after")
     def _check(self) -> Self:
+        if self.point_value_usd is None and self.point_value_profit_ccy is None:
+            raise ValueError("нужна стоимость пункта: point_value_usd или point_value_profit_ccy")
+        if self.profit_currency == "USD" and self.point_value_usd is None:
+            raise ValueError("при прибыли в USD нужен point_value_usd")
         hours = [s.hour for s in self.spread_by_hour]
         if len(hours) != len(set(hours)):
             raise ValueError("часы в spread_by_hour должны быть уникальны")
+        if not self.spread_by_hour and not self.open_items:
+            raise ValueError("пустой spread_by_hour требует ссылки на открытый вопрос (O-04)")
         if self.source == "conservative_estimate" and not self.open_items:
             raise ValueError("консервативная оценка требует ссылки на открытый вопрос (O-04)")
         return self

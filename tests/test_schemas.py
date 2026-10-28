@@ -246,6 +246,22 @@ def test_instrument_estimate_needs_open_item() -> None:
     InstrumentSpec.model_validate(_instrument(source="conservative_estimate", open_items=["O-04"]))
 
 
+def test_instrument_empty_spread_needs_open_item() -> None:
+    with pytest.raises(ValidationError, match="O-04"):
+        InstrumentSpec.model_validate(_instrument(spread_by_hour=[]))
+    InstrumentSpec.model_validate(_instrument(spread_by_hour=[], open_items=["O-04"]))
+
+
+def test_instrument_point_value_rules() -> None:
+    with pytest.raises(ValidationError, match="point_value_usd"):
+        InstrumentSpec.model_validate(_instrument(point_value_usd=None))
+    with pytest.raises(ValidationError, match="стоимость пункта"):
+        InstrumentSpec.model_validate(_instrument(profit_currency="JPY", point_value_usd=None))
+    InstrumentSpec.model_validate(
+        _instrument(profit_currency="JPY", point_value_usd=None, point_value_profit_ccy=100.0)
+    )
+
+
 def test_instrument_spread_worst_not_below_typical() -> None:
     with pytest.raises(ValidationError, match="worst"):
         InstrumentSpec.model_validate(
