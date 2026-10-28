@@ -62,10 +62,13 @@ def parse_bi5(raw: bytes, hour: datetime, divisor: float) -> pl.DataFrame:
     )
 
 
-def http_fetch(url: str, retries: int = 12) -> bytes | None:
-    """GET с бэкоффом на 429/5xx. 404 → None (нет данных за час)."""
+def http_fetch(url: str, retries: int = 12, retries_429: int = 60) -> bytes | None:
+    """GET с бэкоффом на 429/5xx/обрывы. 404 → None (нет данных за час).
+
+    Dukascopy душит по IP: 429 — норма, ждём дольше (до `retries_429` попыток).
+    """
     delay = 2.0
-    for attempt in range(retries):
+    for attempt in range(max(retries, retries_429)):
         try:
             with urllib.request.urlopen(url, timeout=60) as resp:
                 body: bytes = resp.read()
@@ -73,10 +76,11 @@ def http_fetch(url: str, retries: int = 12) -> bytes | None:
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
-            if e.code not in (429, 500, 502, 503, 504) or attempt == retries - 1:
+            limit = retries_429 if e.code == 429 else retries
+            if e.code not in (429, 500, 502, 503, 504) or attempt >= limit - 1:
                 raise
         except (urllib.error.URLError, TimeoutError):
-            if attempt == retries - 1:
+            if attempt >= retries - 1:
                 raise
         time.sleep(delay * (0.5 + random.random()))
         delay = min(delay * 2, 60.0)
@@ -139,19 +143,41 @@ def download_range(
     root: Path = RAW_ROOT,
     workers: int = 4,
     fetch: Fetcher = http_fetch,
+    rounds: int = 20,
     progress: Callable[[date, int], None] | None = None,
 ) -> int:
     days = [d for d in trading_days(start, end) if not day_path(symbol, d, root).exists()]
-    hours = [datetime(d.year, d.month, d.day, h, tzinfo=UTC) for d in days for h in range(24)]
-    # общий пул по часам: сеть душит запросы, а отказ одного часа не должен останавливать остальные
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        list(ex.map(lambda hr: fetch_hour(symbol, hr, root, fetch), hours))
+    pending = [datetime(d.year, d.month, d.day, h, tzinfo=UTC) for d in days for h in range(24)]
+
+    def safe(hr: datetime) -> bool:
+        try:
+            fetch_hour(symbol, hr, root, fetch)
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            return False
+        return True
+
+    # общий пул по часам: сеть душит запросы, отказ одного часа не должен останавливать остальные
+    for _ in range(rounds):
+        pending = [hr for hr in pending if not hour_cache_path(symbol, hr, root).exists()]
+        if not pending:
+            break
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(safe, pending))
     total = 0
+    incomplete = 0
     for d in trading_days(start, end):
+        hours = (datetime(d.year, d.month, d.day, h, tzinfo=UTC) for h in range(24))
+        if not day_path(symbol, d, root).exists() and not all(
+            hour_cache_path(symbol, hr, root).exists() for hr in hours
+        ):
+            incomplete += 1
+            continue
         n = download_day(symbol, d, root, fetch)
         total += n
         if progress:
             progress(d, n)
+    if incomplete:
+        raise RuntimeError(f"{symbol}: {incomplete} дн. не докачаны, перезапусти команду")
     return total
 
 

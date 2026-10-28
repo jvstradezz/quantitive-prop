@@ -132,3 +132,22 @@ def test_spread_profile_and_patch(tmp_path: Path) -> None:
     assert "{hour: 15, typical: 2.0, worst: 4.0}" in text
     assert "dukascopy_symbol: XSYM" in text
     assert "b: 2" in text
+
+
+def test_download_range_resumes_after_failure(tmp_path: Path) -> None:
+    import urllib.error
+
+    from pbl.data.dukascopy import download_range
+
+    calls = {"n": 0}
+
+    def flaky(url: str) -> bytes | None:
+        calls["n"] += 1
+        if calls["n"] == 5:
+            raise urllib.error.URLError("reset")
+        return _bi5([(10, 1002, 1000)])
+
+    d = date(2025, 9, 15)
+    total = download_range("US30", d, d, tmp_path, workers=1, fetch=flaky, rounds=3)
+    assert total == 24
+    assert day_path("US30", d, tmp_path).exists()
