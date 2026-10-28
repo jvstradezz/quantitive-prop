@@ -1,0 +1,31 @@
+# FundedNext MT5, символ NDX100 / NAS100. Источник — скрин «Спецификация» от Nikita, 2026-10-28.
+# Время — сервер FN (GMT+3 летом, ET + 7 ч; DECISIONS O-10 закрыт 2026-10-28).
+symbol: NAS100
+firm: fundednext
+asset_class: indices
+contract_size: 10
+point: 0.01          # размер тика
+point_value_usd: 0.1 # цена тика на 1 лот
+min_lot: 0.01
+lot_step: 0.01
+max_lot_per_order: 40
+commission:
+  per_lot_usd: 0     # индексы без комиссии (PROP_RULES, раздел 2.8)
+# Спред в MT5 «Плавающий», в спеке числа нет. Профиль по часам пока не заполнен:
+# сверить с профилем Dukascopy (T5) и взять консервативное из двух (O-04).
+spread_by_hour: []
+swap_long: -372.912
+swap_short: -57.6
+swap_unit: points    # в пунктах по 0.01 цены: long ≈ −$37.3 за лот в ночь
+triple_swap_day: fri # коэффициенты своп: пн–чт 1, пт 3
+# Торговые окна. Котировки 01:00–24:00, торговля 01:15–24:00; «00:00» = полночь конца дня.
+sessions:
+  - {day: mon, start: "01:15", end: "00:00"}
+  - {day: tue, start: "01:15", end: "00:00"}
+  - {day: wed, start: "01:15", end: "00:00"}
+  - {day: thu, start: "01:15", end: "00:00"}
+  - {day: fri, start: "01:15", end: "00:00"}
+server_tz: fundednext  # Firm.server_time, сброс дня 00:00
+dukascopy_symbol: null       # сопоставит T5
+source: mt5_specification
+open_items: [O-04]
