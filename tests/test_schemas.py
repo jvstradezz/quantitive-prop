@@ -246,6 +246,12 @@ def test_instrument_estimate_needs_open_item() -> None:
     InstrumentSpec.model_validate(_instrument(source="conservative_estimate", open_items=["O-04"]))
 
 
+def test_instrument_empty_spread_needs_open_item() -> None:
+    with pytest.raises(ValidationError, match="O-04"):
+        InstrumentSpec.model_validate(_instrument(spread_by_hour=[]))
+    InstrumentSpec.model_validate(_instrument(spread_by_hour=[], open_items=["O-04"]))
+
+
 def test_instrument_spread_worst_not_below_typical() -> None:
     with pytest.raises(ValidationError, match="worst"):
         InstrumentSpec.model_validate(
