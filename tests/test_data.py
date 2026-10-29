@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from pbl.data.bars import build_bars
 from pbl.data.dukascopy import day_path, download_day, hour_url, parse_bi5, trading_days
@@ -151,3 +152,42 @@ def test_download_range_resumes_after_failure(tmp_path: Path) -> None:
     total = download_range("US30", d, d, tmp_path, workers=1, fetch=flaky, rounds=3)
     assert total == 24
     assert day_path("US30", d, tmp_path).exists()
+
+
+def _candles(rows: list[tuple[int, int, int, int, int, float]]) -> bytes:
+    return lzma.compress(b"".join(struct.pack(">IIIIIf", *r) for r in rows))
+
+
+def test_parse_candles_drops_flat_filler_and_checks_range() -> None:
+    from pbl.data.candles import candle_url, parse_candles
+
+    day = date(2025, 9, 16)
+    assert candle_url("USATECHIDXUSD", day, "BID").endswith(
+        "/USATECHIDXUSD/2025/08/16/BID_candles_min_1.bi5"
+    )
+    raw = _candles([(0, 1000, 1010, 990, 1020, 1.5), (60, 1010, 1010, 1010, 1010, 0.0)])
+    df = parse_candles(raw, day, 10.0)
+    assert df.height == 1
+    assert (df["o"][0], df["c"][0], df["l"][0], df["h"][0]) == (100.0, 101.0, 99.0, 102.0)
+    assert df["ts"][0] == datetime(2025, 9, 16, tzinfo=UTC)
+    with pytest.raises(ValueError, match="low/high"):
+        parse_candles(_candles([(0, 1000, 1010, 1005, 1020, 1.0)]), day, 10.0)
+
+
+def test_download_candles_and_year_bars(tmp_path: Path) -> None:
+    from pbl.data.candles import bars_path, build_year_bars, download_candles
+
+    calls: list[str] = []
+
+    def fetch(url: str) -> bytes | None:
+        calls.append(url)
+        px = 1002 if "ASK_" in url else 1000
+        return _candles([(0, px, px + 2, px - 1, px + 3, 1.0)])
+
+    d = date(2025, 9, 16)
+    assert download_candles("US30", d, d, tmp_path / "raw", fetch=fetch) == 2
+    assert download_candles("US30", d, d, tmp_path / "raw", fetch=fetch) == 0
+    assert len(calls) == 2  # второй вызов — из кэша
+    assert build_year_bars("US30", d, d, tmp_path / "raw", tmp_path / "bars") == 1
+    bars = pl.read_parquet(bars_path("US30", 2025, tmp_path / "bars"))
+    assert bars["ask_o"][0] - bars["bid_o"][0] == pytest.approx(0.002)
