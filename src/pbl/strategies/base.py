@@ -35,7 +35,8 @@ class Signals:
     side: I8  # +1 лонг, −1 шорт
     order: I8  # MARKET / STOP / LIMIT
     level: F64  # цена stop/limit-заявки; NaN для market
-    expire_s: I64  # заявка живёт, пока ts бара < expire_s (UTC, секунды); market — только bar + 1
+    expire_s: I64  # заявка живёт, пока ts бара < expire_s (UTC, секунды); market — только bar + 1,
+    # и тоже не позже срока (бар bar + 1 после разрыва данных может быть уже другим днём)
     sl: F64  # уровень стопа; NaN — стоп задан дистанцией `sl_dist` от цены исполнения
     sl_dist: F64
     tp: F64  # уровень тейка; NaN — тейк в R от фактического риска `tp_r` (NaN — без тейка)

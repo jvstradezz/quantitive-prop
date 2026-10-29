@@ -135,7 +135,8 @@ def _run(
         if j0 >= n or j0 < 1:
             continue
         if s_order[k] == MARKET:
-            if entry_ok[j0] and not (close_min >= 0 and minute[j0] >= close_min):
+            late = ts[j0] >= s_expire[k] or (close_min >= 0 and minute[j0] >= close_min)
+            if entry_ok[j0] and not late:
                 fill[k] = j0
                 emid[k] = mo[j0]
                 eslip[k] = 1.0

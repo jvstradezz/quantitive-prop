@@ -162,6 +162,14 @@ def test_pending_order_expires() -> None:
     assert run(m, sig).signal_status["no_fill"] == 1
 
 
+def test_market_order_respects_expiry_after_data_gap() -> None:
+    times = [T0, T0 + dt.timedelta(hours=3)]
+    m = mkt([(100, 101, 99, 100)] * 2, times=times)
+    late = Signals.build([0], [1], sl_dist=[10.0], expire_s=[int(T0.timestamp()) + 120])
+    assert run(m, late).signal_status["no_fill"] == 1
+    assert len(run(m, LONG10).trades) == 1  # без срока — исполнится после разрыва
+
+
 def test_oco_cancels_other_leg() -> None:
     sig = Signals.build(
         [0, 0], [1, -1], [95.0, 105.0], order="stop", level=[104.0, 96.0], oco=[0, 0]
