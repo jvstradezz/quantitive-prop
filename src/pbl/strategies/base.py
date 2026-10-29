@@ -120,7 +120,8 @@ class Signals:
 class Strategy(Protocol):
     """Стратегия: параметры — в самом объекте, данные — только через `signals`."""
 
-    name: str
+    @property
+    def name(self) -> str: ...
 
     def signals(self, bars: pl.DataFrame) -> Signals: ...
 

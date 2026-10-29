@@ -197,7 +197,7 @@ def test_trailing_stop_hand_example() -> None:
 
 def test_trailing_step_throttles_modifications() -> None:
     sig = Signals.build([0], [1], sl_dist=[10.0])
-    rows = [(100, 101, 99, 100), (100, 106, 100, 106)]
+    rows: list[Row] = [(100, 101, 99, 100), (100, 106, 100, 106)]
     rows += [(106 + i * 0.2, 107 + i * 0.2, 105.5, 107 + i * 0.2) for i in range(1, 11)]
     t = one(run(mkt(rows), sig, Exits(trail_start_r=0.5, trail_dist_r=1.0, trail_step_r=0.5)))
     # бар 1: +0.5R → стоп 95.5; дальше рост на 0.02R за бар — меньше шага 0.5R
@@ -238,12 +238,14 @@ def test_settlement_window_and_session_block_entries() -> None:
     rows = [(1.17, 1.1701, 1.1699, 1.17)] * 3
     firm = FirmTradeProfile.from_rules(next(iter(FN.programs)).trade_rules, funded=False)
     m = mkt(rows, SPECS["EURUSD"], firm=firm, times=times, spread=0.0001)
-    assert not m.entry_ok[1] and m.entry_ok[2]
+    assert not m.entry_ok[1]
+    assert m.entry_ok[2]
     sig = Signals.build([0, 1], [1, 1], sl_dist=[0.002, 0.002])
     assert run(m, sig).signal_status["no_fill"] == 1
     # NAS100: торговля с 01:15 сервера
     nas = mkt(rows, firm=firm, times=times)
-    assert not nas.entry_ok[1] and nas.entry_ok[2]
+    assert not nas.entry_ok[1]
+    assert nas.entry_ok[2]
 
 
 def test_max_positions_and_trades_per_day() -> None:
@@ -373,7 +375,7 @@ def random_signals(seed: int, m: Market, k: int = 40) -> Signals:
         level=np.where(kind == "market", np.nan, level),
         expire_s=expire,
         sl_dist=rng.uniform(1, 5, k),
-        tp_r=rng.choice([1.0, 2.0, np.nan], k),
+        tp_r=np.asarray(rng.choice([1.0, 2.0, np.nan], k), dtype=np.float64),
         oco=np.where(rng.random(k) < 0.3, bar, -1),
     )
 
@@ -422,8 +424,9 @@ def test_server_clock_matches_scalar_server_date() -> None:
         dt.datetime(2026, 11, 3, 22, 0, tzinfo=dt.UTC),
         dt.datetime(2025, 12, 31, 23, 0, tzinfo=dt.UTC),
     ]
-    day, minute, wd = server_clock(np.asarray([int(p.timestamp()) for p in pts]), SERVER)
-    for p, d, mi, w in zip(pts, day, minute, wd, strict=True):
+    day, minute, wd = server_clock(np.asarray([int(p.timestamp()) for p in pts], np.int64), SERVER)
+    for p, d, _mi, w in zip(pts, day, minute, wd, strict=True):
         sd = server_date(p, SERVER)
-        assert d == sd.toordinal() and w == sd.weekday()
+        assert d == sd.toordinal()
+        assert w == sd.weekday()
     assert minute[2] == 30  # 21:30 UTC = 00:30 сервера (GMT+3)
