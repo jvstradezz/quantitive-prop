@@ -7,6 +7,7 @@
 - стоп и тейк (или частичный выход) в одном баре — стоп;
 - в баре входа по stop/limit-заявке весь диапазон бара считается пройденным после входа;
 - гэп за стоп или тейк — исполнение по цене открытия бара;
+- выход по времени, по сессии и перед выходными — на закрытии последнего бара до границы;
 - вне торговой сессии инструмента (у Dukascopy тики есть, у фирмы котировок нет) позиция
   не сопровождается: стоп за ночь исполнится по открытию сессии;
 - безубыток и трейлинг считаются по закрытому бару и действуют со следующего бара
@@ -57,7 +58,7 @@ EXIT_REASONS = ("sl", "tp", "trail", "be", "partial", "time", "guard", "friday_c
 ) = range(12)
 
 # колонки выхода
-I_STATUS, I_ENTRY, I_EXIT, I_REASON, I_MODS, I_PART, N_OUT_I = range(7)
+I_STATUS, I_ENTRY, I_EXIT, I_REASON, I_MODS, I_PART, I_XCLOSE, N_OUT_I = range(8)
 (
     F_ENTRY_MID,
     F_ENTRY,
@@ -128,6 +129,7 @@ def _run(
         out_i[k, I_REASON] = -1
         out_i[k, I_MODS] = 0
         out_i[k, I_PART] = -1
+        out_i[k, I_XCLOSE] = 0
         for c in range(out_f.shape[1]):
             out_f[k, c] = np.nan
         d = float(s_side[k])
@@ -228,6 +230,7 @@ def _run(
         part_bar = -1
         part_fill = np.nan
         x_bar = -1
+        x_close = 0  # 1 — выход на закрытии бара x_bar, 0 — внутри бара или на открытии
         reason = -1
         x_fill = np.nan
         b = j
@@ -315,6 +318,26 @@ def _run(
                     sl_cur = cand
                     mods += 1
                     moved = 2
+            # выход по времени, сессии или перед выходными — на закрытии последнего бара
+            # до границы (при разрыве данных — последняя известная цена, а не утро)
+            nb = b + 1
+            if nb < n:
+                if force_close[nb]:
+                    reason = X_FRIDAY
+                elif close_min >= 0 and (day[nb] != day[j] or minute[nb] >= close_min):
+                    reason = X_EOD
+                elif max_hold > 0 and ts[nb] - ts[j] >= max_hold:
+                    reason = X_TIME
+                if reason >= 0:
+                    gross += q_left * d * (mc[b] - em)
+                    spread_c += q_left * sb / 2.0
+                    slip_c += q_left * slp[b]
+                    x_fill = mc[b] - d * (sb / 2.0 + slp[b])
+                    mae = min(mae, gross / risk)
+                    mfe = max(mfe, gross / risk)
+                    x_bar = b
+                    x_close = 1
+                    break
             b += 1
         if x_bar < 0:  # данные кончились — закрываем по последней цене
             b = n - 1
@@ -327,6 +350,7 @@ def _run(
             mae = min(mae, gross / risk)
             mfe = max(mfe, gross / risk)
             x_bar = b
+            x_close = 1
         active[n_act] = x_bar
         n_act += 1
 
@@ -335,6 +359,7 @@ def _run(
         out_i[k, I_REASON] = reason
         out_i[k, I_MODS] = mods
         out_i[k, I_PART] = part_bar
+        out_i[k, I_XCLOSE] = x_close
         out_f[k, F_ENTRY_MID] = em
         out_f[k, F_ENTRY] = entry
         out_f[k, F_EXIT] = x_fill

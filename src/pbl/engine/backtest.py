@@ -228,7 +228,11 @@ def scan(
     risk = f[:, K.F_RISK]
     r_gross = f[:, K.F_GROSS] / risk
     cost = (f[:, K.F_SPREAD] + f[:, K.F_SLIP]) / risk + cr.comm_r + cr.swap_r
-    hold = market.ts[out.ints[acc, K.I_EXIT]] - market.ts[out.ints[acc, K.I_ENTRY]]
+    hold = (
+        market.ts[out.ints[acc, K.I_EXIT]]
+        + 60 * out.ints[acc, K.I_XCLOSE]
+        - market.ts[out.ints[acc, K.I_ENTRY]]
+    )
     return ScanResult(
         r_net=r_gross - cost,
         r_gross=r_gross,
@@ -282,6 +286,7 @@ def backtest(
         c_swap = float(cr.swap_r[n_t])
         r_net = r_gross - (c_spread + c_comm + c_swap + c_slip)
         e_bar, x_bar = int(ii[K.I_ENTRY]), int(ii[K.I_EXIT])
+        close_s = int(market.ts[x_bar]) + 60 * int(ii[K.I_XCLOSE])
         trade_id = f"{meta.strategy_id}-{meta.variant_id}-{n_t:05d}"
         trades.append(
             Trade(
@@ -291,7 +296,7 @@ def backtest(
                 symbol=market.symbol,
                 side="long" if d > 0 else "short",
                 open_utc=_utc(int(market.ts[e_bar])),
-                close_utc=_utc(int(market.ts[x_bar])),
+                close_utc=_utc(close_s),
                 entry=float(fi[K.F_ENTRY]),
                 exit=float(fi[K.F_EXIT]),
                 sl=float(fi[K.F_SL0]),
@@ -306,7 +311,7 @@ def backtest(
                 r_net=float(r_net),
                 mae_r=float(fi[K.F_MAE]),
                 mfe_r=float(fi[K.F_MFE]),
-                hold_sec=int(market.ts[x_bar] - market.ts[e_bar]),
+                hold_sec=close_s - int(market.ts[e_bar]),
                 exit_reason=K.EXIT_REASONS[int(ii[K.I_REASON])],  # type: ignore[arg-type]
                 mods=int(ii[K.I_MODS]),
                 sample=meta.sample,
@@ -379,7 +384,8 @@ def _trade_equity(
         keep = np.maximum.accumulate(np.where(market.live[sl], np.arange(x - e + 1), 0))
         r_worst, r_close = r_worst[keep], r_close[keep]
     r_close[-1] = t.r_net
-    r_worst[-1] = min(t.r_net, r_worst[-1]) if t.exit_reason == "tp" else t.r_net
+    held_through = t.exit_reason in ("tp", "time", "eod", "friday_close")
+    r_worst[-1] = min(t.r_net, r_worst[-1]) if held_through else t.r_net
     r_worst = np.minimum(r_worst, r_close)
     return pl.DataFrame(
         {

@@ -254,6 +254,17 @@ def test_no_stop_outside_instrument_session() -> None:
     assert gap.exit == pytest.approx(84.5)
 
 
+def test_session_close_before_data_gap_uses_last_known_close() -> None:
+    # у Dukascopy нет тиков до утра: закрытие в 23:30 — по последнему бару дня, без свопа
+    times = [T0 + dt.timedelta(minutes=i) for i in range(3)]
+    times.append(dt.datetime(2025, 9, 16, 22, 15, tzinfo=dt.UTC))  # ср 01:15 сервера
+    rows = [(100, 101, 99, 100), (100, 101, 99, 100), (100, 103, 99, 102), (80, 81, 79, 80)]
+    t = one(run(mkt(rows, times=times), LONG10, Exits(close_at="23:30")))
+    assert (t.exit_reason, t.cost_swap_r) == ("eod", 0.0)
+    assert t.close_utc == T0 + dt.timedelta(minutes=3)
+    assert t.r_gross == pytest.approx(0.2)  # mid 102
+
+
 # --- правила фирмы ------------------------------------------------------------------------
 
 
@@ -278,9 +289,12 @@ def test_max_positions_and_trades_per_day() -> None:
     rows = [(100, 101, 99, 100)] * 8
     firm = FirmTradeProfile(max_trades_day=2)
     sig = Signals.build([0, 1, 2], [1, 1, 1], sl_dist=[10.0] * 3)
-    res = run(mkt(rows, firm=firm), sig, Exits(max_hold_min=0.5), max_positions=1)
-    # выход в открытии следующего бара: бар выхода занят → второй сигнал «busy»
-    assert res.signal_status["busy"] == 1
+    res = run(mkt(rows, firm=firm), sig, max_positions=1)
+    assert res.signal_status["busy"] == 2
+    # выход на закрытии бара входа освобождает слот к открытию следующего
+    quick = run(mkt(rows, firm=firm), sig, Exits(max_hold_min=0.5), max_positions=1)
+    assert (len(quick.trades), quick.signal_status["day_cap"]) == (2, 1)
+    assert quick.trades[0].hold_sec == 60
     res3 = run(mkt(rows, firm=firm), sig, max_positions=5)
     assert (len(res3.trades), res3.signal_status["day_cap"]) == (2, 1)
 
@@ -425,7 +439,9 @@ def test_jit_matches_python_and_invariants(seed: int) -> None:
     eq = res.equity
     for t in res.trades:
         e = eq.filter(pl.col("trade_id") == t.trade_id)
-        assert e.height == (t.close_utc - t.open_utc).total_seconds() / 60 + 1
+        assert e["ts"][0] == t.open_utc
+        last = t.close_utc - e["ts"][-1]
+        assert last in (dt.timedelta(0), dt.timedelta(minutes=1))  # внутри бара / на закрытии
         assert e["r_close"][-1] == pytest.approx(t.r_net)
         assert (e["r_worst"] <= e["r_close"] + 1e-12).all()
 
