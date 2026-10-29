@@ -275,14 +275,12 @@ def _idea_blocks() -> list[dict[str, Any]]:
     return [yaml.safe_load(b) for b in blocks]
 
 
-def test_idea_cards_from_docs_validate() -> None:
-    """Карточки в docs/IDEAS.md (шаблон §3 и идея №1) проходят схему IdeaCard."""
-    cards = _idea_blocks()
-    assert len(cards) >= 2
-    for raw in cards:
-        card = IdeaCard.model_validate(raw)
-        assert card.status == "Новая"
-    assert {c["id"] for c in cards} == {"IDEA-0001"}
+def test_idea_template_from_docs_validates() -> None:
+    """Шаблон карточки в docs/IDEAS.md §3 проходит схему IdeaCard."""
+    (raw,) = _idea_blocks()
+    card = IdeaCard.model_validate(raw)
+    assert card.status == "Новая"
+    assert card.id == "IDEA-0001"
 
 
 def test_idea_card_rejects_bad_id_and_many_questions() -> None:

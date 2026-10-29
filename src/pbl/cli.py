@@ -9,10 +9,12 @@ import typer
 
 from pbl.config import REPO_ROOT, validate_all
 from pbl.data.cli import data_app
+from pbl.research.cli import idea_app
 
 app = typer.Typer(help="Quantitive prop: конвейер стратегий и пропов", no_args_is_help=True)
 
 app.add_typer(data_app, name="data")
+app.add_typer(idea_app, name="idea")
 
 
 @app.callback()
