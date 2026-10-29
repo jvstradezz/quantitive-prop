@@ -12,3 +12,4 @@ __pycache__/
 .hypothesis/
 dist/
 *.egg-info/
+web/public/data/

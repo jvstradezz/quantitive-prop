@@ -33,6 +33,23 @@ def validate_configs(
     typer.echo("все конфиги валидны")
 
 
+@app.command("site-data")
+def site_data(
+    out: Annotated[Path, typer.Option(help="папка для site.json")] = REPO_ROOT / "web/public/data",
+    root: Annotated[Path, typer.Option(help="корень репозитория")] = REPO_ROOT,
+    repo: Annotated[str | None, typer.Option(help="owner/name для ссылок на GitHub")] = None,
+    sha: Annotated[str | None, typer.Option(help="коммит сборки")] = None,
+) -> None:
+    """Собрать JSON для сайта дашборда: вехи, идеи, отчёты проп-MC (только из git)."""
+    import datetime as dt
+
+    from pbl.api.site_data import build_site_data, write_site_data
+
+    built_at = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+    path = write_site_data(out, build_site_data(root, repo=repo, sha=sha, built_at=built_at))
+    typer.echo(f"записано {path}")
+
+
 prop_app = typer.Typer(
     help="Проп-симулятор Monte Carlo (docs/MONTE_CARLO.md)", no_args_is_help=True
 )
