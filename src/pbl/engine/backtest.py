@@ -183,6 +183,8 @@ class ScanResult:
     cost_r: F64
     hold_sec: I64
     n_signals: int
+    entry_bar: I64 = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
+    side: npt.NDArray[np.int8] = field(default_factory=lambda: np.zeros(0, dtype=np.int8))
 
     @property
     def n_trades(self) -> int:
@@ -239,6 +241,8 @@ def scan(
         cost_r=cost,
         hold_sec=hold.astype(np.int64),
         n_signals=len(sig),
+        entry_bar=out.ints[acc, K.I_ENTRY].astype(np.int64),
+        side=sig.side[acc],
     )
 
 

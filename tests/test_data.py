@@ -10,7 +10,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from pbl.data.bars import build_bars
+from pbl.data.bars import build_bars, load_bars
 from pbl.data.dukascopy import day_path, download_day, hour_url, parse_bi5, trading_days
 from pbl.data.quality import check_ticks
 from pbl.data.servertime import to_server_naive
@@ -191,3 +191,25 @@ def test_download_candles_and_year_bars(tmp_path: Path) -> None:
     assert build_year_bars("US30", d, d, tmp_path / "raw", tmp_path / "bars") == 1
     bars = pl.read_parquet(bars_path("US30", 2025, tmp_path / "bars"))
     assert bars["ask_o"][0] - bars["bid_o"][0] == pytest.approx(0.002)
+
+
+def _year_file(root: Path, symbol: str, year: int, days: list[date]) -> None:
+    d = root / symbol / str(year)
+    d.mkdir(parents=True)
+    ts = [datetime(x.year, x.month, x.day, 12, tzinfo=UTC) for x in days]
+    pl.DataFrame({"ts": ts, "bid_c": [1.0] * len(ts)}).with_columns(
+        pl.col("ts").cast(pl.Datetime("ms", "UTC"))
+    ).write_parquet(d / "1m_utc_candles.parquet")
+
+
+def test_load_bars_cuts_the_requested_days_across_years(tmp_path: Path) -> None:
+    _year_file(tmp_path, "NAS100", 2024, [date(2024, 12, 30), date(2024, 12, 31)])
+    _year_file(tmp_path, "NAS100", 2025, [date(2025, 1, 2), date(2025, 1, 3)])
+    got = load_bars("NAS100", date(2024, 12, 31), date(2025, 1, 2), root=tmp_path)
+    assert [t.date() for t in got["ts"].to_list()] == [date(2024, 12, 31), date(2025, 1, 2)]
+
+
+def test_load_bars_names_the_missing_years(tmp_path: Path) -> None:
+    _year_file(tmp_path, "NAS100", 2025, [date(2025, 1, 2)])
+    with pytest.raises(FileNotFoundError, match=r"NAS100.*2024, 2026"):
+        load_bars("NAS100", date(2024, 6, 1), date(2026, 6, 1), root=tmp_path)
