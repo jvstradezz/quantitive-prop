@@ -127,7 +127,7 @@ configs/instruments ────────────────────
 | Сделки и эквити прогона | `data/runs/<run_id>/` | Parquet (в git не попадает) |
 | Сводки прогонов | `reports/<run_id>/` | Markdown + маленький Parquet + `manifest.json` (в git) |
 | Реестр | `research/registry/` | YAML-карточки (в git) |
-| Счётчик вариантов DSR | `research/registry/variants.parquet` | Parquet (в git, маленький) |
+| Счётчик вариантов DSR | `research/registry/variants/<IDEA-id>.parquet` | Parquet, по файлу на идею (в git, ≤ 50 МБ) |
 
 В чат и контекст — только сводки до 30 строк. Большие таблицы и логи — в файлы.
 
