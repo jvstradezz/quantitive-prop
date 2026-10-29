@@ -455,6 +455,9 @@ def test_scan_matches_backtest_without_overlap() -> None:
     bt = run(m, sig, ex, max_positions=1)
     np.testing.assert_allclose(s.r_net, [t.r_net for t in bt.trades])
     assert s.summary()["n"] == len(bt.trades)
+    # вход и сторона каждой сделки скана: по ним исследователь привязывает R к дню и дню недели
+    assert [m.ts[b] for b in s.entry_bar] == [int(t.open_utc.timestamp()) for t in bt.trades]
+    assert [("long" if d > 0 else "short") for d in s.side] == [t.side for t in bt.trades]
 
 
 def test_server_clock_matches_scalar_server_date() -> None:

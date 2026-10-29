@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import datetime as dt
+from pathlib import Path
 from typing import Literal
 
 import polars as pl
 
+from pbl.config import REPO_ROOT
 from pbl.data.servertime import to_server_naive
+
+BARS_ROOT = REPO_ROOT / "data" / "bars"
 
 
 def build_bars(
@@ -40,5 +45,31 @@ def build_bars(
             pl.col("spread").mean().alias("spread_mean"),
             pl.col("spread").max().alias("spread_max"),
         )
+        .sort("ts")
+    )
+
+
+def load_bars(
+    symbol: str, start: dt.date, end: dt.date, *, every: str = "1m", root: Path = BARS_ROOT
+) -> pl.DataFrame:
+    """Бары из `data/bars/<symbol>/<год>/<every>_utc.parquet` за [start, end] включительно.
+
+    Нет файла за год диапазона — ошибка со списком недостающих лет: данные не достраиваем.
+    """
+    years = range(start.year, end.year + 1)
+    files = {y: root / symbol / str(y) / f"{every}_utc.parquet" for y in years}
+    missing = [y for y, p in files.items() if not p.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            f"{symbol}: нет баров {every} за {', '.join(map(str, missing))} в {root}; "
+            "pbl data download и pbl data bars"
+        )
+    lo = dt.datetime.combine(start, dt.time(0), dt.UTC)
+    hi = dt.datetime.combine(end + dt.timedelta(days=1), dt.time(0), dt.UTC)
+    frames = [pl.read_parquet(p) for p in files.values()]
+    return (
+        pl.concat(frames)
+        .filter((pl.col("ts") >= lo) & (pl.col("ts") < hi))
+        .unique(subset="ts", keep="last")
         .sort("ts")
     )
