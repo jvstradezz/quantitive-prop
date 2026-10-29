@@ -11,6 +11,7 @@ import typer
 import yaml
 
 from pbl.config import REPO_ROOT
+from pbl.data.candles import build_year_bars, download_candles
 from pbl.data.dukascopy import RAW_ROOT, download_range, load_ticks, trading_days
 from pbl.data.quality import check_ticks
 from pbl.data.spread import patch_spec, render_yaml, spread_profile
@@ -125,3 +126,28 @@ def bars_cmd(
         p.parent.mkdir(parents=True, exist_ok=True)
         part.drop("y").write_parquet(p, compression="zstd")
     typer.echo(f"{symbol}: {b.height} баров {every}")
+
+
+@data_app.command("candles")
+def candles_cmd(
+    symbol: str,
+    start: Annotated[str, typer.Option(help="YYYY-MM-DD")],
+    end: Annotated[str, typer.Option(help="YYYY-MM-DD включительно")],
+    workers: int = 4,
+) -> None:
+    """Скачать минутные свечи bid/ask (2 файла в сутки) и собрать M1-бары по годам.
+
+    Бары: data/bars/<symbol>/<year>/1m_utc_candles.parquet. Спред — только разница ask−bid
+    по open/close свечи; профиль спреда по часам по-прежнему берётся из тиков.
+    """
+    if symbol not in SYMBOLS:
+        raise typer.BadParameter(f"неизвестный символ, есть: {', '.join(SYMBOLS)}")
+    s, e = date.fromisoformat(start), date.fromisoformat(end)
+    n = download_candles(
+        symbol,
+        s,
+        e,
+        workers=workers,
+        progress=lambda i, total: typer.echo(f"{symbol} {i}/{total}"),
+    )
+    typer.echo(f"{symbol}: скачано файлов {n}, баров M1: {build_year_bars(symbol, s, e)}")
