@@ -242,7 +242,8 @@ def test_no_stop_outside_instrument_session() -> None:
     # провал продолжился к открытию сессии — стоп по цене открытия
     rows[3] = (85, 86, 84, 85)
     gap = one(run(mkt(rows, times=times), LONG10))
-    assert (gap.exit_reason, gap.exit) == ("sl", pytest.approx(84.5))
+    assert gap.exit_reason == "sl"
+    assert gap.exit == pytest.approx(84.5)
 
 
 # --- правила фирмы ------------------------------------------------------------------------
