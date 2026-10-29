@@ -1,15 +1,19 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 
+/** `mock` — экран на вымышленных данных (src/data/fake.ts), пока нет движка и бот-раннера. */
 const nav = [
-  { to: '/ideas', label: 'Идеи' },
-  { to: '/leaderboard', label: 'Leaderboard' },
-  { to: '/strategy', label: 'Стратегия' },
-  { to: '/prop', label: 'Prop simulator' },
-  { to: '/bots', label: 'Bots' },
+  { to: '/status', label: 'Статус', mock: false },
+  { to: '/ideas', label: 'Идеи', mock: false },
+  { to: '/prop', label: 'Prop simulator', mock: false },
+  { to: '/leaderboard', label: 'Leaderboard', mock: true },
+  { to: '/strategy', label: 'Стратегия', mock: true },
+  { to: '/bots', label: 'Bots', mock: true },
 ]
 
 export function Layout() {
+  const { pathname } = useLocation()
+  const mock = nav.find((n) => pathname.startsWith(n.to))?.mock ?? false
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 border-b border-line bg-bg">
@@ -27,6 +31,7 @@ export function Layout() {
                 }
               >
                 {n.label}
+                {n.mock && <span className="ml-2 text-[11px] leading-4 font-normal text-ink-2">макет</span>}
               </NavLink>
             ))}
           </nav>
@@ -34,8 +39,17 @@ export function Layout() {
         </div>
       </header>
       <div className="border-b border-line bg-surface">
-        <p className="mx-auto max-w-[1200px] px-4 py-2 text-[13px] leading-5 text-ink-2 sm:px-6">
-          <span className="font-medium text-accent">Макет M0.</span> Все цифры вымышлены — это статичный набросок экранов, не результаты движка. Время: ET и МСК; сервер FundedNext принят как ET + 7 ч (допущение O-10).
+        <p className="mx-auto max-w-[1200px] px-4 py-2 text-[13px] leading-5 text-ink-2">
+          {mock ? (
+            <>
+              <span className="font-medium text-accent">Макет.</span> Все цифры на этом экране вымышлены: это набросок, не результаты движка. Реальные данные появятся с M4–M6.
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-pos">Данные из репозитория.</span> Страница читает файлы git, ничего не вымышлено.
+            </>
+          )}{' '}
+          Время: ET и МСК; сервер FundedNext принят как ET + 7 ч (допущение O-10).
         </p>
       </div>
       <main className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-12">

@@ -1,36 +1,35 @@
 import { useMemo, useState } from 'react'
-import { pOfRisk, programs, stresses, type PropProgram } from '../data/fake'
-import { RiskCurve } from '../components/charts'
 import { Card, PageHeader, TableWrap } from '../components/ui'
+import { SiteGate } from '../components/SiteGate'
 import { pct, usd } from '../lib/format'
+import type { MdTable, ProgramRow, PropReport } from '../lib/site'
+
+const FIRMS = [
+  { id: 'all', label: 'Все' },
+  { id: 'fundednext', label: 'FundedNext' },
+  { id: 'fundingpips', label: 'FundingPips' },
+] as const
+const COLLAPSED_ROWS = 15
 
 const reasons = [
-  { key: 'daily', label: 'Дневной лимит', opacity: 1 },
-  { key: 'total', label: 'Общий лимит', opacity: 0.7 },
-  { key: 'time', label: 'Срок', opacity: 0.45 },
-  { key: 'rule', label: 'Правило фирмы', opacity: 0.25 },
+  { key: 'fail_guard_total', label: 'Предохранитель бота: общий лимит' },
+  { key: 'fail_daily', label: 'Дневной лимит фирмы' },
+  { key: 'fail_max', label: 'Общий лимит фирмы' },
+  { key: 'fail_timeout', label: 'Срок' },
+  { key: 'fail_inactivity', label: 'Неактивность' },
+  { key: 'fail_rule', label: 'Правило фирмы' },
 ] as const
 
-function adjust(p: PropProgram, f: number) {
-  const clamp = (v: number) => Math.min(1, v)
-  return {
-    ...p,
-    pPhase1: p.pPhase1 === null ? null : clamp(p.pPhase1 * f ** 0.4),
-    pPhase2: p.pPhase2 === null ? null : clamp(p.pPhase2 * f ** 0.4),
-    pFunded: clamp(p.pFunded * f ** 0.6),
-    pPayout: p.pPayout * f,
-    ciLo: p.ciLo * f,
-    ciHi: p.ciHi * f,
-    ev: (p.ev + p.fee) * f - p.fee,
-  }
-}
+const firmName = (id: string) => FIRMS.find((f) => f.id === id)?.label ?? id
+const num = (v: number | null, f: (x: number) => string) => (v === null ? '—' : f(v))
+const evTone = (v: number | null) => (v === null ? '' : v >= 0 ? 'text-pos' : 'text-neg')
 
 function PBar({ label, value }: { label: string; value: number | null }) {
   return (
     <div>
       <div className="mb-1 flex justify-between text-[14px] leading-5">
         <span>{label}</span>
-        <span className="num">{value === null ? '—' : pct(value)}</span>
+        <span className="num">{num(value, (v) => pct(v, 1))}</span>
       </div>
       <div className="h-2 rounded-full bg-line">
         <div className="h-2 rounded-full bg-accent" style={{ width: `${(value ?? 0) * 100}%` }} />
@@ -39,46 +38,66 @@ function PBar({ label, value }: { label: string; value: number | null }) {
   )
 }
 
-export default function PropSimulator() {
-  const [active, setActive] = useState<string[]>([])
-  const [selected, setSelected] = useState('fn-2s')
+function MdTableView({ table, minWidth }: { table: MdTable; minWidth: number }) {
+  return (
+    <TableWrap>
+      <table className="tbl" style={{ minWidth }}>
+        <thead><tr>{table.header.map((h, i) => <th key={h} className={i === 0 ? '' : 'r'}>{h}</th>)}</tr></thead>
+        <tbody>
+          {table.rows.map((r) => (
+            <tr key={r[0]}>{r.map((c, i) => <td key={i} className={i === 0 ? '' : 'num r'}>{c}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </TableWrap>
+  )
+}
 
-  const f = useMemo(() => stresses.filter((s) => active.includes(s.id)).reduce((a, s) => a * s.factor, 1), [active])
-  const rows = useMemo(() => programs.map((p) => adjust(p, f)).sort((a, b) => b.pPayout - a.pPayout), [f])
-  const best = rows[0]
-  const sel = rows.find((r) => r.id === selected) ?? best
+function Report({ report }: { report: PropReport }) {
+  const [firm, setFirm] = useState<(typeof FIRMS)[number]['id']>('all')
+  const [expanded, setExpanded] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
 
-  const toggle = (id: string) => setActive((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
+  const rows = useMemo(
+    () =>
+      report.programs
+        .filter((p) => p.p1 !== null && (firm === 'all' || p.firm === firm))
+        .sort((a, b) => Number((b.ev1 ?? 0) > 0) - Number((a.ev1 ?? 0) > 0) || (b.p1 ?? 0) - (a.p1 ?? 0)),
+    [report, firm],
+  )
+  const templates = report.programs.filter((p) => p.p1 === null)
+  const shown = expanded ? rows : rows.slice(0, COLLAPSED_ROWS)
+  const sel: ProgramRow | undefined = rows.find((r) => r.key === selected) ?? rows[0]
+  const synthetic = report.id.includes('synthetic')
 
   return (
     <>
-      <PageHeader title="Prop simulator" lead="Одна стратегия против всех программ фирм: вероятность каждой фазы, причины провала и риск, который максимизирует шанс первой выплаты." />
-
-      <div className="card mb-6 border-l-4 border-l-accent p-4 sm:p-6">
-        <div className="label mb-1">Рекомендация · Asia range breakout · XAUUSD</div>
-        <p className="m-0">
-          Лучше всего — {best.firm} {best.name}: P(1-я выплата) <span className="num">{pct(best.pPayout)}</span> (<span className="num">{pct(best.ciLo)}–{pct(best.ciHi)}</span>), EV на взнос <span className="num">{usd(best.ev)}</span>, риск <span className="num">{best.risk.phase1}%</span>
-          {best.risk.phase2 !== null && <> / <span className="num">{best.risk.phase2}%</span></>} / <span className="num">{best.risk.funded}%</span>.
-        </p>
-      </div>
-
-      <div className="mb-6">
-        <div className="label mb-2">Стресс-тесты</div>
-        <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Переключатели стрессов">
-          {stresses.map((s) => (
-            <button key={s.id} type="button" className="chip" aria-pressed={active.includes(s.id)} onClick={() => toggle(s.id)}>{s.label}</button>
-          ))}
+      {synthetic && (
+        <div className="card mb-6 p-4 text-[14px] leading-5 sm:p-6">
+          <span className="font-medium text-accent">Это не рынок.</span> Отчёт посчитан на синтетических сделках с известным перевесом: так проверяют сам симулятор. Реальные стратегии появятся после движка бэктеста (M2).
         </div>
-        <p className="mt-2 text-[13px] leading-5 text-ink-2">{active.length === 0 ? 'База: без стресса.' : `Совокупный множитель к P(1-я выплата): ×${f.toFixed(2)}.`} В макете множители условные.</p>
+      )}
+      {report.recommendation && (
+        <div className="card mb-6 border-l-4 border-l-accent p-4 sm:p-6">
+          <div className="label mb-1">Рекомендация · {report.title}</div>
+          <p className="m-0">{report.recommendation}</p>
+          {report.sample && <p className="mb-0 mt-2 text-[13px] leading-5 text-ink-2">{report.sample}</p>}
+        </div>
+      )}
+
+      <div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Фильтр по фирме">
+        {FIRMS.map((f) => (
+          <button key={f.id} type="button" className="chip" aria-pressed={firm === f.id} onClick={() => { setFirm(f.id); setExpanded(false) }}>{f.label}</button>
+        ))}
       </div>
 
-      <Card title="Типы пропов" note="P по фазам, дни до funded и EV на один взнос" pad={false}>
+      <Card title="Типы пропов" note={<>строк: <span className="num">{rows.length}</span>, сначала EV больше 0, затем по P(1-я выплата)</>} pad={false}>
         <TableWrap>
-          <table className="tbl min-w-[980px]">
+          <table className="tbl min-w-[1040px]">
             <thead>
               <tr>
                 <th>Программа</th>
-                <th>Цели</th>
+                <th>Риск Ф1 / Ф2 / funded</th>
                 <th className="r">Взнос</th>
                 <th className="r">P фаза 1</th>
                 <th className="r">P фаза 2</th>
@@ -89,73 +108,132 @@ export default function PropSimulator() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((p, i) => (
-                <tr key={p.id} className={p.id === sel.id ? 'bg-bg' : ''}>
+              {shown.map((p) => (
+                <tr key={p.key} className={p.key === sel?.key ? 'bg-bg' : ''}>
                   <td>
-                    <button type="button" onClick={() => setSelected(p.id)} aria-pressed={p.id === sel.id} className="cursor-pointer border-0 bg-transparent p-0 text-left font-medium text-ink hover:text-accent">
-                      {i === 0 && <span className="mr-2 text-accent" aria-label="лучшая">★</span>}{p.name}
+                    <button type="button" onClick={() => setSelected(p.key)} aria-pressed={p.key === sel?.key} className="cursor-pointer border-0 bg-transparent p-0 text-left font-medium text-ink hover:text-accent">
+                      {p.label}
                     </button>
-                    <div className="text-[12px] leading-4 text-ink-2">{p.firm}</div>
+                    <div className="text-[12px] leading-4 text-ink-2">{firmName(p.firm)}</div>
                   </td>
-                  <td className="num">{p.phases}</td>
-                  <td className="num r">{usd(p.fee, 2)}</td>
-                  <td className="num r">{p.pPhase1 === null ? '—' : pct(p.pPhase1)}</td>
-                  <td className="num r">{p.pPhase2 === null ? '—' : pct(p.pPhase2)}</td>
-                  <td className="num r">{pct(p.pFunded)}</td>
-                  <td className="num r font-medium">{pct(p.pPayout)}</td>
-                  <td className="num r">{p.daysMedian} / {p.daysP90}</td>
-                  <td className={`num r ${p.ev >= 0 ? 'text-pos' : 'text-neg'}`}>{usd(p.ev)}</td>
+                  <td className="num text-[13px]">{p.risk}</td>
+                  <td className="num r">{num(p.cost_usd, (v) => usd(v, 2))}</td>
+                  <td className="num r">{num(p.p_phase1, (v) => pct(v, 1))}</td>
+                  <td className="num r">{num(p.p_phase2, (v) => pct(v, 1))}</td>
+                  <td className="num r">{num(p.p_funded, (v) => pct(v, 1))}</td>
+                  <td className="num r font-medium">{num(p.p1, (v) => pct(v, 1))}</td>
+                  <td className="num r">{p.days_funded_median === null ? '—' : `${p.days_funded_median} / ${p.days_funded_p90}`}</td>
+                  <td className={`num r ${evTone(p.ev1)}`}>{num(p.ev1, (v) => usd(v))}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </TableWrap>
+        {rows.length > COLLAPSED_ROWS && (
+          <div className="border-t border-line p-3 text-center">
+            <button type="button" className="btn btn-sm" onClick={() => setExpanded((e) => !e)}>{expanded ? 'Свернуть' : `Показать все ${rows.length}`}</button>
+          </div>
+        )}
       </Card>
 
-      <h2 className="mb-6 mt-12">{sel.firm} · {sel.name}</h2>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card title="Вероятности по фазам" note={<>95% ДИ первой выплаты: <span className="num">{pct(sel.ciLo)}–{pct(sel.ciHi)}</span></>}>
-          <div className="flex flex-col gap-4">
-            <PBar label="Фаза 1" value={sel.pPhase1} />
-            <PBar label="Фаза 2" value={sel.pPhase2} />
-            <PBar label="Funded" value={sel.pFunded} />
-            <PBar label="1-я выплата" value={sel.pPayout} />
+      {sel && (
+        <>
+          <h2 className="mb-6 mt-12">{sel.label}</h2>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card
+              title="Вероятности по фазам"
+              note={sel.p1_lo_sample !== null && sel.p1_hi_sample !== null
+                ? <>интервал по выборке: <span className="num">{pct(sel.p1_lo_sample, 1)}–{pct(sel.p1_hi_sample, 1)}</span></>
+                : sel.p1_lo_mc !== null && sel.p1_hi_mc !== null
+                  ? <>шум MC: <span className="num">{pct(sel.p1_lo_mc, 1)}–{pct(sel.p1_hi_mc, 1)}</span></>
+                  : undefined}
+            >
+              <div className="flex flex-col gap-4">
+                <PBar label="Фаза 1" value={sel.p_phase1} />
+                <PBar label="Фаза 2" value={sel.p_phase2} />
+                <PBar label="Funded" value={sel.p_funded} />
+                <PBar label="Выплата после funded" value={sel.p_payout_given_funded} />
+                <PBar label="1-я выплата" value={sel.p1} />
+              </div>
+            </Card>
+
+            <Card title="Причины провалов" note="доли всех путей">
+              <ul className="m-0 list-none p-0">
+                {reasons.map((r) => (
+                  <li key={r.key} className="border-b border-line py-2 text-[14px] leading-5 last:border-0">
+                    <div className="flex items-center justify-between">
+                      <span>{r.label}</span>
+                      <span className="num">{num(sel[r.key], (v) => pct(v, 1))}</span>
+                    </div>
+                    <div className="mt-1 h-1 rounded-full bg-line"><div className="h-1 rounded-full bg-accent" style={{ width: `${(sel[r.key] ?? 0) * 100}%` }} /></div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+
+            <Card title="Деньги" note="на один взнос">
+              <table className="tbl">
+                <tbody>
+                  <tr><td className="!pl-0">Взнос</td><td className="num r">{num(sel.cost_usd, (v) => usd(v, 2))}</td></tr>
+                  <tr><td className="!pl-0">EV на взнос</td><td className={`num r ${evTone(sel.ev1)}`}>{num(sel.ev1, (v) => usd(v))}</td></tr>
+                  <tr><td className="!pl-0">EV за 180 дней</td><td className={`num r ${evTone(sel.ev180)}`}>{num(sel.ev180, (v) => usd(v))}</td></tr>
+                  <tr><td className="!pl-0">P безубыточности</td><td className="num r">{num(sel.breakeven_p !== null && sel.breakeven_p <= 1 ? sel.breakeven_p : null, (v) => pct(v, 1))}</td></tr>
+                  <tr><td className="!pl-0">Дни до 1-й выплаты (мед.)</td><td className="num r">{num(sel.days_payout_median, (v) => String(v))}</td></tr>
+                </tbody>
+              </table>
+            </Card>
           </div>
-        </Card>
+        </>
+      )}
 
-        <Card title="Причины провалов" note="доли среди всех провалов">
-          <div className="flex h-4 overflow-hidden rounded-full bg-line" role="img" aria-label="Распределение причин провала">
-            {reasons.map((r) => (
-              <i key={r.key} className="bg-accent" style={{ width: `${sel.fails[r.key] * 100}%`, opacity: r.opacity }} />
-            ))}
-          </div>
-          <ul className="m-0 mt-4 list-none p-0">
-            {reasons.map((r) => (
-              <li key={r.key} className="flex items-center justify-between border-b border-line py-2 text-[14px] leading-5 last:border-0">
-                <span><i className="mr-3 inline-block h-2 w-3 rounded-sm bg-accent" style={{ opacity: r.opacity }} />{r.label}</span>
-                <span className="num">{pct(sel.fails[r.key])}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+      {report.costs && (
+        <div className="mt-12">
+          <Card title="Издержки стратегии" note={report.costs_note ?? undefined} pad={false}>
+            <MdTableView table={report.costs} minWidth={480} />
+          </Card>
+        </div>
+      )}
 
-        <Card title="Риск по фазам" note="оптимум при ограничениях фирмы">
-          <table className="tbl">
-            <thead><tr><th className="!pl-0">Фаза</th><th className="r">Риск на сделку, % счёта</th></tr></thead>
-            <tbody>
-              <tr><td className="!pl-0">Фаза 1</td><td className="num r">{sel.risk.phase1.toFixed(1)}%</td></tr>
-              {sel.risk.phase2 !== null && <tr><td className="!pl-0">Фаза 2</td><td className="num r">{sel.risk.phase2.toFixed(1)}%</td></tr>}
-              <tr><td className="!pl-0">Funded</td><td className="num r">{sel.risk.funded.toFixed(1)}%</td></tr>
-            </tbody>
-          </table>
-          <p className="mt-4 text-[13px] leading-5 text-ink-2">Правило снижения: после −50% дневного лимита фирмы бот режет риск вдвое и стоит до конца дня (предохранитель §10).</p>
-        </Card>
+      {report.stresses && (
+        <div className="mt-6">
+          <Card title="Стрессы" note="P(1-я выплата) · EV на взнос; риск найден на базовом сценарии" pad={false}>
+            <MdTableView table={report.stresses} minWidth={960} />
+          </Card>
+        </div>
+      )}
 
-        <Card title="P(1-я выплата) от риска" note="фаза 1">
-          <RiskCurve optimum={sel.risk.phase1} pMax={Math.max(sel.pPayout, 0.05)} current={sel.risk.phase1} />
-          <p className="sr-only">Значение в оптимуме: {pct(pOfRisk(sel.risk.phase1, sel.risk.phase1, sel.pPayout))}</p>
-        </Card>
-      </div>
+      {templates.length > 0 && (
+        <p className="mt-6 text-[13px] leading-5 text-ink-2">
+          Шаблоны типов пропов (без выплат, для сравнения): {templates.map((t) => t.label).join('; ')}. Их числа условны (P-23 в docs/DECISIONS.md), в таблицу не входят.
+        </p>
+      )}
+    </>
+  )
+}
+
+function Body({ reports }: { reports: PropReport[] }) {
+  const [id, setId] = useState(reports[0]?.id)
+  const report = reports.find((r) => r.id === id) ?? reports[0]
+  if (!report) return <div className="card p-8 text-center text-ink-2">Отчётов проп-MC в reports/ пока нет.</div>
+  return (
+    <>
+      {reports.length > 1 && (
+        <div className="mb-6 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Отчёт">
+          {reports.map((r) => (
+            <button key={r.id} type="button" className="chip" aria-pressed={r.id === report.id} onClick={() => setId(r.id)}>{r.title}</button>
+          ))}
+        </div>
+      )}
+      <Report key={report.id} report={report} />
+    </>
+  )
+}
+
+export default function PropSimulator() {
+  return (
+    <>
+      <PageHeader title="Prop simulator" lead="Одна стратегия против всех программ фирм: вероятность каждой фазы, причины провала и риск, который максимизирует шанс первой выплаты." />
+      <SiteGate>{(data) => <Body reports={data.reports.prop} />}</SiteGate>
     </>
   )
 }

@@ -1,4 +1,4 @@
-.PHONY: sync check lint typecheck test fmt validate-configs
+.PHONY: sync check lint typecheck test fmt validate-configs site-data
 
 sync:
 	uv sync --frozen
@@ -21,3 +21,6 @@ fmt:
 
 validate-configs:
 	uv run pbl validate-configs
+
+site-data:
+	uv run pbl site-data
