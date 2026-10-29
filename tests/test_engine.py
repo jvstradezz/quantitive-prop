@@ -228,6 +228,23 @@ def test_time_exit_and_session_close() -> None:
     assert t2.close_utc == T0 + dt.timedelta(minutes=3)
 
 
+def test_no_stop_outside_instrument_session() -> None:
+    # NAS100 торгуется с 01:15 сервера; у Dukascopy тики есть и ночью
+    tue = dt.datetime(2025, 9, 16, 20, 58, tzinfo=dt.UTC)  # 23:58 сервера
+    times = [tue, tue + dt.timedelta(minutes=1), tue + dt.timedelta(minutes=32)]
+    times.append(dt.datetime(2025, 9, 16, 22, 15, tzinfo=dt.UTC))  # ср 01:15 сервера
+    rows = [(100, 101, 99, 100), (100, 101, 99, 100), (100, 100, 80, 85), (99, 100, 98, 99)]
+    m = mkt(rows, times=times)
+    assert not m.live[2]
+    t = one(run(m, LONG10))
+    assert t.exit_reason == "time"  # ночной провал ниже стопа не исполнил стоп
+    assert t.mae_r == pytest.approx(-0.2)  # по бару 01:15: mid 98
+    # провал продолжился к открытию сессии — стоп по цене открытия
+    rows[3] = (85, 86, 84, 85)
+    gap = one(run(mkt(rows, times=times), LONG10))
+    assert (gap.exit_reason, gap.exit) == ("sl", pytest.approx(84.5))
+
+
 # --- правила фирмы ------------------------------------------------------------------------
 
 

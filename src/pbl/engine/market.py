@@ -60,6 +60,7 @@ class Market:
     day: I64  # ordinal торгового дня сервера
     minute: I64  # минута по часам сервера (0–1439)
     weekday: I64  # 0 — понедельник
+    live: B8  # бар внутри торговой сессии инструмента: вне её у фирмы нет котировок
     entry_ok: B8  # можно открыть позицию: сессия инструмента и правила фирмы
     force_close: B8  # к открытию бара позиция должна быть закрыта (выходные)
     costs: InstrumentCosts
@@ -139,7 +140,8 @@ def prepare_market(
     else:
         slip = cost.slip_spread_mult * (typical if has_spec else data_spread)
 
-    entry_ok = session_mask(spec, weekday, minute)
+    live = session_mask(spec, weekday, minute)
+    entry_ok = live.copy()
     force_close = np.zeros(ts.shape, dtype=np.bool_)
     if firm.settlement_window is not None:
         a, z = (_hhmm(x) for x in firm.settlement_window)
@@ -160,6 +162,7 @@ def prepare_market(
         day=day,
         minute=minute,
         weekday=weekday,
+        live=live,
         entry_ok=entry_ok,
         force_close=force_close,
         costs=costs,

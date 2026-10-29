@@ -112,6 +112,7 @@ def run_kernel(
         market.slip,
         market.day,
         market.minute,
+        market.live,
         market.entry_ok,
         market.force_close,
         sig.bar,
@@ -373,6 +374,10 @@ def _trade_equity(
     )
     r_worst = realized + q * d * (adv - entry) / risk - comm_r - swap_acc
     r_close = realized + q * d * (close - entry) / risk - comm_r - swap_acc
+    # вне сессии у фирмы нет котировок: эквити стоит на последнем значении сессии
+    if not market.live[sl].all():
+        keep = np.maximum.accumulate(np.where(market.live[sl], np.arange(x - e + 1), 0))
+        r_worst, r_close = r_worst[keep], r_close[keep]
     r_close[-1] = t.r_net
     r_worst[-1] = min(t.r_net, r_worst[-1]) if t.exit_reason == "tp" else t.r_net
     r_worst = np.minimum(r_worst, r_close)
