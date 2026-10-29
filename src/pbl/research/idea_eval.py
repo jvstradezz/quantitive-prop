@@ -78,14 +78,15 @@ Tables = dict[str, dict[str, pl.DataFrame]]
 """config.key → инструмент → сделки (`range_sweep.TABLE_SCHEMA`) за всю историю."""
 
 
-def build_tables(bundles: dict[str, Bundle], configs: Sequence[Config]) -> Tables:
+def build_tables(bundles: dict[str, Bundle], configs: Sequence[Config], splits: Splits) -> Tables:
     """Сделки каждой конфигурации на каждом инструменте, где окно торгуется у фирмы."""
+    lo, hi = splits.first.toordinal(), splits.last.toordinal()
     out: Tables = {}
     for cfg in configs:
         per: dict[str, pl.DataFrame] = {}
         for sym, b in bundles.items():
             if b.live(cfg):
-                per[sym] = config_trades(b, cfg)
+                per[sym] = config_trades(b, cfg).filter(pl.col("day").is_between(lo, hi))
         if per:
             out[cfg.key] = per
     return out

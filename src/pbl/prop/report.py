@@ -350,7 +350,7 @@ def _sentence(rep: PropReport) -> str:
     )
 
 
-def _costs_section(rep: PropReport) -> list[str]:
+def costs_section(rep: PropReport) -> list[str]:
     """Издержки по статьям в $, % счёта и R (SPEC §6) при риске Ф1 рекомендованной программы."""
     k = rep.costs
     rec = rep.recommended
@@ -406,7 +406,7 @@ def to_markdown(rep: PropReport) -> str:
 
     lines += ["## Рекомендация", "", _sentence(rep), ""]
 
-    lines += [*_costs_section(rep), ""]
+    lines += [*costs_section(rep), ""]
 
     firm_rows = sorted([r for r in rep.rows if not r.rules.is_template], key=_rank, reverse=True)
     lines += [

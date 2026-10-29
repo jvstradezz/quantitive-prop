@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 
 import numpy as np
 import polars as pl
@@ -27,46 +28,15 @@ from pbl.research.variants import VariantLog
 from pbl.schemas import InstrumentSpec
 from pbl.strategies.range_session import AUTHOR_DAY_SIDES
 
-UTC = dt.UTC
+BarsFactory = Callable[..., pl.DataFrame]
 
 
 def spec(symbol: str) -> InstrumentSpec:
     return load_model(CONFIGS / "instruments" / "fundednext" / f"{symbol}.yaml", InstrumentSpec)
 
 
-def synthetic_bars(n_days: int = 70, seed: int = 5, drift: float = 0.0) -> pl.DataFrame:
-    """M1 bid/ask: случайное блуждание по часам сервера FN 01:15–24:00, летнее время (UTC + 3).
-
-    Спред 0.8 пункта цены. Нужно только для механики; выводов о рынке не даёт.
-    """
-    rng = np.random.default_rng(seed)
-    first = dt.date(2025, 4, 7)  # понедельник, лето США: сервер = UTC + 3
-    ts: list[dt.datetime] = []
-    mid_o: list[float] = []
-    price = 20_000.0
-    for k in range(n_days * 7 // 5):
-        day = first + dt.timedelta(days=k)
-        if day.weekday() >= 5:
-            continue
-        midnight = dt.datetime.combine(day, dt.time(0), UTC)
-        for minute in range(75, 1440):
-            ts.append(midnight + dt.timedelta(minutes=minute - 180))
-            mid_o.append(price)
-            price += rng.normal(drift, 4.0)
-    o = np.asarray(mid_o)
-    c = np.append(o[1:], price)
-    noise = np.abs(rng.normal(0, 2.0, size=(2, o.size)))
-    h, lo = np.maximum(o, c) + noise[0], np.minimum(o, c) - noise[1]
-    cols: dict[str, object] = {"ts": ts}
-    for name, v in (("o", o), ("h", h), ("l", lo), ("c", c)):
-        cols[f"bid_{name}"] = v - 0.4
-        cols[f"ask_{name}"] = v + 0.4
-    cols["spread_mean"] = np.full(o.size, 0.8)
-    return pl.DataFrame(cols).with_columns(pl.col("ts").cast(pl.Datetime("ms", "UTC")))
-
-
 @pytest.fixture(scope="module")
-def nas() -> Bundle:
+def nas(synthetic_bars: BarsFactory) -> Bundle:
     return make_bundle("NAS100", synthetic_bars())
 
 
@@ -158,6 +128,13 @@ def test_variant_specs_are_unique_per_grid_and_instrument() -> None:
     a = variant_spec(Config("ny30", "fade", exit_grid()["rr_1_1"], "author"), "NAS100")
     assert a.filters[0].params["mon"] == "long"
     assert a.family == "range_fade"
+
+
+def test_probe_count_matches_the_card() -> None:
+    """Строки счётчика до мутаций: по инструментам окна и корзина на каждую конфигурацию."""
+    specs = {s: spec(s) for s in ("NAS100", "US30", "SPX500", "GER30")}
+    rows = sum(sum(window_is_live(sp, c.start, c.end) for sp in specs.values()) + 1 for c in grid())
+    assert rows == 1288
 
 
 def test_daily_series_feed_the_variant_log(nas: Bundle, tmp_path: pytest.TempPathFactory) -> None:

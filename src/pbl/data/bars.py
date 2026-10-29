@@ -8,10 +8,8 @@ from typing import Literal
 
 import polars as pl
 
-from pbl.config import REPO_ROOT
+from pbl.data.candles import BARS_ROOT, bars_path
 from pbl.data.servertime import to_server_naive
-
-BARS_ROOT = REPO_ROOT / "data" / "bars"
 
 
 def build_bars(
@@ -49,26 +47,21 @@ def build_bars(
     )
 
 
-def load_bars(
-    symbol: str, start: dt.date, end: dt.date, *, every: str = "1m", root: Path = BARS_ROOT
-) -> pl.DataFrame:
-    """Бары из `data/bars/<symbol>/<год>/<every>_utc.parquet` за [start, end] включительно.
+def load_bars(symbol: str, start: dt.date, end: dt.date, *, root: Path = BARS_ROOT) -> pl.DataFrame:
+    """M1-бары свечей из `data/bars/<symbol>/<год>/1m_utc_candles.parquet` за [start, end].
 
     Нет файла за год диапазона — ошибка со списком недостающих лет: данные не достраиваем.
     """
-    years = range(start.year, end.year + 1)
-    files = {y: root / symbol / str(y) / f"{every}_utc.parquet" for y in years}
+    files = {y: bars_path(symbol, y, root) for y in range(start.year, end.year + 1)}
     missing = [y for y, p in files.items() if not p.is_file()]
     if missing:
         raise FileNotFoundError(
-            f"{symbol}: нет баров {every} за {', '.join(map(str, missing))} в {root}; "
-            "pbl data download и pbl data bars"
+            f"{symbol}: нет баров M1 за {', '.join(map(str, missing))} в {root}; pbl data candles"
         )
     lo = dt.datetime.combine(start, dt.time(0), dt.UTC)
     hi = dt.datetime.combine(end + dt.timedelta(days=1), dt.time(0), dt.UTC)
-    frames = [pl.read_parquet(p) for p in files.values()]
     return (
-        pl.concat(frames)
+        pl.concat([pl.read_parquet(p) for p in files.values()])
         .filter((pl.col("ts") >= lo) & (pl.col("ts") < hi))
         .unique(subset="ts", keep="last")
         .sort("ts")
