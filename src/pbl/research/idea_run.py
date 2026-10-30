@@ -1,6 +1,6 @@
 """Прогон идеи №1 через гейты S1–S3 и ответ по IDEAS §4.
 
-Две стадии. `run_is` видит только IS (до общей даты отсечения, P-35): S1 всей сетки, запись проб
+Две стадии. `run_is` видит только IS (до общей даты отсечения, D-032): S1 всей сетки, запись проб
 в счётчик, walk-forward, DSR/PBO, проверки топ-кандидатов. `run_holdout` вызывается только для
 финалиста, прошедшего всё на IS, — один раз; затем событийный бэктест OOS-сделок и проп-MC (S3).
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from pbl.research.idea_eval import (
     I64,
     MIN_WFE,
     SENS_PF,
+    FilterCheck,
     HoldoutResult,
     SensRow,
     Splits,
@@ -33,14 +34,13 @@ from pbl.research.idea_eval import (
     bucket_stats,
     build_tables,
     daily_matrix,
-    filter_verdict,
+    filter_check,
     finalist_holdout,
     instrument_edges,
+    oos_calendar,
     pooled,
-    pooled_daystats,
     s1_table,
     sensitivity,
-    series_sharpe,
     walk_forward,
     wf_daystats,
     wfe,
@@ -56,7 +56,7 @@ from pbl.research.range_sweep import (
     variant_spec,
 )
 from pbl.research.variants import VariantLog
-from pbl.robustness.bands import DayStats, DiffResult, metrics
+from pbl.robustness.bands import metrics
 from pbl.robustness.dsr import dsr_for_trials
 from pbl.robustness.pbo import PBOResult, pbo_cscv
 from pbl.robustness.splits import holdout_start, wf_windows
@@ -68,8 +68,8 @@ S3_MIN_P1 = 0.30
 HO_MIN_MEAN_R = 0.0
 """Чистое матожидание на holdout должно быть выше (S2, §4.6)."""
 
-GATES = ("S1", "WFE", "DSR/PBO", "чувствительность", "годы", "инструменты", "фильтр дня")
-HOLDOUT_GATES = ("полоса MC", "E > 0", "инструменты", "фильтр дня")
+GATES = ("S1", "WFE", "DSR/PBO", "чувствительность", "годы", "инструменты", "фильтр дня (OOS)")
+HOLDOUT_GATES = ("полоса MC", "E > 0", "инструменты", "фильтр дня (OOS)")
 
 
 @dataclass(frozen=True)
@@ -102,8 +102,7 @@ class Candidate:
     sens: list[SensRow]
     years: pl.DataFrame
     instruments: dict[str, tuple[int, float]]
-    filt: DiffResult | None
-    twin_sharpe: float | None
+    filt: FilterCheck | None
     gates: dict[str, bool | None]
 
     @property
@@ -140,9 +139,7 @@ class ISStage:
 @dataclass
 class HoldoutStage:
     result: HoldoutResult
-    filt: DiffResult | None
-    twin_sharpe: float | None
-    sharpe: float
+    filt: FilterCheck | None
     scan_vs_backtest: float
     gates: dict[str, bool | None]
     trades: list[Trade]
@@ -203,9 +200,12 @@ def log_variants(
 
 
 def filter_grid(
-    bundles: dict[str, Bundle], configs: Sequence[Config], calendar: I64
+    bundles: dict[str, Bundle], configs: Sequence[Config], calendar: I64, label: str
 ) -> pl.DataFrame:
-    """По каждому скану без фильтра: mean R разрешённых и запрещённых корзин автора."""
+    """По каждому скану без фильтра: mean R разрешённых и запрещённых корзин автора.
+
+    Колонки получают суффикс `label` (`is` — выбор, `oos` — вердикт).
+    """
     rows = []
     for cfg in configs:
         if cfg.filt != "none":
@@ -215,11 +215,11 @@ def filter_grid(
         rows.append(
             {
                 "key": cfg.key,
-                "n_allowed": int(ma["n_trades"]),
-                "n_forbidden": int(mf["n_trades"]),
-                "mean_r_allowed": ma["mean_r"],
-                "mean_r_forbidden": mf["mean_r"],
-                "allowed_better": bool(ma["mean_r"] > mf["mean_r"]),
+                f"n_allowed_{label}": int(ma["n_trades"]),
+                f"n_forbidden_{label}": int(mf["n_trades"]),
+                f"mean_r_allowed_{label}": ma["mean_r"],
+                f"mean_r_forbidden_{label}": mf["mean_r"],
+                f"allowed_better_{label}": bool(ma["mean_r"] > mf["mean_r"]),
             }
         )
     return pl.DataFrame(rows)
@@ -245,23 +245,11 @@ def evaluate(
     inst = instrument_edges(t)
     pos = sum(1 for n, m in inst.values() if n >= MIN_INSTRUMENT_TRADES and m > 0)
 
-    diff: DiffResult | None = None
-    twin_sharpe: float | None = None
-    filt_ok: bool | None = None
-    if cfg.filt == "author":
-        try:
-            diff = filter_verdict(
-                bundles, [cfg], splits.is_calendar, n_paths=p.n_paths, seed=p.seed
-            )
-        except ValueError:
-            diff = None
-        twin_sharpe = stage.sharpe.get(replace(cfg, filt="none").key)
-        filt_ok = bool(
-            diff is not None
-            and diff.holds
-            and twin_sharpe is not None
-            and row["sharpe_daily"] >= twin_sharpe
-        )
+    # §4.5: вердикт по фильтру — только на OOS (тесты WF); IS нужен лишь для отбора вариантов
+    check = filter_check(
+        bundles, tables, cfg, oos_calendar(stage.picks, splits), n_paths=p.n_paths, seed=p.seed
+    )
+    filt_ok = bool(check is not None and check.ok) if cfg.filt == "author" else None
     pbo = stage.pbo
     gates: dict[str, bool | None] = {
         "S1": bool(row["s1"]),
@@ -272,9 +260,9 @@ def evaluate(
         "чувствительность": bool(sens) and all(s.pf >= SENS_PF for s in sens),
         "годы": years_ok,
         "инструменты": pos >= MIN_INSTRUMENTS,
-        "фильтр дня": filt_ok,
+        "фильтр дня (OOS)": filt_ok,
     }
-    return Candidate(cfg, row, dsr, sr0, sens, years, inst, diff, twin_sharpe, gates)
+    return Candidate(cfg, row, dsr, sr0, sens, years, inst, check, gates)
 
 
 def run_is(bundles: dict[str, Bundle], p: RunParams) -> ISStage:
@@ -316,7 +304,12 @@ def run_is(bundles: dict[str, Bundle], p: RunParams) -> ISStage:
     stage.candidates = [
         evaluate(by_key[r["key"]], r, bundles, stage, p) for r in ranked.iter_rows(named=True)
     ]
-    stage.filter_grid = filter_grid(bundles, configs, cal)
+    stage.filter_grid = filter_grid(bundles, configs, cal, "is")
+    oos = oos_calendar(picks, splits)
+    if len(oos):
+        stage.filter_grid = stage.filter_grid.join(
+            filter_grid(bundles, configs, oos, "oos"), on="key"
+        )
     return stage
 
 
@@ -367,31 +360,23 @@ def run_holdout(bundles: dict[str, Bundle], stage: ISStage, p: RunParams) -> Hol
     res = finalist_holdout(
         stage.tables, cfg.key, wf_source, sp, opened_at=p.on, n_paths=p.n_paths, seed=p.seed
     )
-    cal = sp.ho_calendar
-    obs: DayStats = pooled_daystats(stage.tables, cfg.key, cal)
-    sharpe = series_sharpe(obs.r)
-    twin = replace(cfg, filt="none")
-    twin_sharpe = None
-    if twin.key in stage.tables:
-        twin_sharpe = series_sharpe(pooled_daystats(stage.tables, twin.key, cal).r)
-    try:
-        diff: DiffResult | None = filter_verdict(
-            bundles, [cfg], cal, n_paths=p.n_paths, seed=p.seed
-        )
-    except ValueError:
-        diff = None
+    # §4.5: OOS = тесты WF + holdout; проверка и для финалиста без фильтра (ответ на вопрос идеи)
+    check = filter_check(
+        bundles,
+        stage.tables,
+        cfg,
+        oos_calendar(stage.picks, sp, with_holdout=True),
+        n_paths=p.n_paths,
+        seed=p.seed,
+    )
 
     pos = sum(1 for n, m in res.per_instrument.values() if n >= HO_MIN_INSTRUMENT_TRADES and m > 0)
-    filt_ok: bool | None = None
-    if cfg.filt == "author":
-        filt_ok = bool(
-            diff is not None and diff.diff > 0 and twin_sharpe is not None and sharpe >= twin_sharpe
-        )
+    filt_ok = bool(check is not None and check.ok) if cfg.filt == "author" else None
     gates: dict[str, bool | None] = {
         "полоса MC": res.band.passed,
         "E > 0": res.stats["mean_r"] > HO_MIN_MEAN_R,
         "инструменты": pos >= MIN_INSTRUMENTS,
-        "фильтр дня": filt_ok,
+        "фильтр дня (OOS)": filt_ok,
     }
     trades = oos_trades(bundles, stage, cfg, p.run_id)
     ho = [t for t in trades if t.sample == "HOLDOUT"]
@@ -409,7 +394,7 @@ def run_holdout(bundles: dict[str, Bundle], stage: ISStage, p: RunParams) -> Hol
             for r in prop.rows
             if not math.isnan(r.stats.p1)
         )
-    return HoldoutStage(res, diff, twin_sharpe, sharpe, gap, gates, trades, prop, s3_ok)
+    return HoldoutStage(res, check, gap, gates, trades, prop, s3_ok)
 
 
 # --- вердикт ------------------------------------------------------------------------------

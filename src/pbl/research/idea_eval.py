@@ -50,7 +50,7 @@ ALLOWED_BUCKETS = frozenset({(0, 1), (1, 1), (1, -1), (2, 1), (3, -1), (4, 1), (
 
 @dataclass(frozen=True)
 class Splits:
-    """Хронология: IS — [first, cut), holdout — [cut, last]; общая для всех инструментов (P-35)."""
+    """Хронология: IS — [first, cut), holdout — [cut, last]; общая для всех инструментов (D-032)."""
 
     first: dt.date
     last: dt.date
@@ -120,6 +120,14 @@ def daily_matrix(tables: Tables, keys: Sequence[str], calendar: I64) -> tuple[F6
             np.add.at(r[:, j], pos[ok], df["r_net"].to_numpy()[ok])
             np.add.at(n[:, j], pos[ok], 1.0)
     return r, n
+
+
+def oos_calendar(picks: Sequence[WFPick], splits: Splits, *, with_holdout: bool = False) -> I64:
+    """Дни OOS (VALIDATION §4.5): тестовые окна WF и, если открыт, holdout."""
+    parts = [splits.calendar(p.window.test_start, p.window.test_end) for p in picks]
+    if with_holdout:
+        parts.append(splits.ho_calendar)
+    return np.unique(np.concatenate(parts)) if parts else np.empty(0, dtype=np.int64)
 
 
 def series_sharpe(x: F64) -> float:
@@ -240,7 +248,9 @@ def wfe(picks: Sequence[WFPick]) -> float:
 
 
 def pooled_daystats(tables: Tables, key: str, calendar: I64) -> DayStats:
+    """Дневные суммы пула по дням `calendar` (отсортирован; дни могут идти с пропусками)."""
     t = pooled(tables, key, int(calendar[0]), int(calendar[-1]) + 1)
+    t = t.filter(pl.col("day").is_in(pl.Series(calendar)))
     return daystats(calendar, t["day"].to_numpy(), t["r_net"].to_numpy())
 
 
@@ -341,7 +351,7 @@ def bucket_stats(
 
     `cfgs` — конфигурации без фильтра (сканы не зависят от фильтра, повторов нет).
     """
-    lo, hi = int(calendar[0]), int(calendar[-1]) + 1
+    days_in = pl.Series(calendar)
     days: dict[bool, list[I64]] = {True: [], False: []}
     rs: dict[bool, list[F64]] = {True: [], False: []}
     for cfg in cfgs:
@@ -349,7 +359,7 @@ def bucket_stats(
             if not b.live(cfg):
                 continue
             for kind in _ONE_SIDED:
-                t = scan_kind(b, cfg, kind).filter((pl.col("day") >= lo) & (pl.col("day") < hi))
+                t = scan_kind(b, cfg, kind).filter(pl.col("day").is_in(days_in))
                 wd, side = t["wd"].to_numpy(), t["side"].to_numpy()
                 allowed = np.array(
                     [(int(w), int(s)) in ALLOWED_BUCKETS for w, s in zip(wd, side, strict=True)],
@@ -362,6 +372,52 @@ def bucket_stats(
     a = daystats(calendar, np.concatenate(days[True]), np.concatenate(rs[True]))
     f = daystats(calendar, np.concatenate(days[False]), np.concatenate(rs[False]))
     return a, f
+
+
+def edge_score(ds: DayStats) -> float:
+    """mean R × √n = Σ R / √n: чем больше сделок при том же mean R, тем увереннее край."""
+    n = float(ds.n.sum())
+    return float(ds.r.sum() / math.sqrt(n)) if n > 0 else 0.0
+
+
+@dataclass(frozen=True)
+class FilterCheck:
+    """§4.5 на заданном календаре OOS: корзины автора и вариант с фильтром против без него."""
+
+    diff: DiffResult | None
+    score_author: float
+    score_none: float
+
+    @property
+    def ok(self) -> bool:
+        """Разрешённые корзины лучше запрещённых и фильтр не хуже по mean R × √n."""
+        return self.diff is not None and self.diff.diff > 0 and self.score_author >= self.score_none
+
+
+def filter_check(
+    bundles: dict[str, Bundle],
+    tables: Tables,
+    cfg: Config,
+    calendar: I64,
+    *,
+    n_paths: int = 10_000,
+    seed: int = 42,
+) -> FilterCheck | None:
+    """Проверка фильтра дня на параметрах `cfg`; пустой календарь OOS — проверки нет."""
+    if len(calendar) == 0:
+        return None
+    none_cfg, author_cfg = replace(cfg, filt="none"), replace(cfg, filt="author")
+    try:
+        diff: DiffResult | None = filter_verdict(
+            bundles, [none_cfg], calendar, n_paths=n_paths, seed=seed
+        )
+    except ValueError:
+        diff = None
+    return FilterCheck(
+        diff,
+        edge_score(pooled_daystats(tables, author_cfg.key, calendar)),
+        edge_score(pooled_daystats(tables, none_cfg.key, calendar)),
+    )
 
 
 def filter_verdict(

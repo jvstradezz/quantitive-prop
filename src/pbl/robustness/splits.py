@@ -1,4 +1,4 @@
-"""Хронологические разбиения: IS / holdout и окна walk-forward (VALIDATION §2, P-01, P-35)."""
+"""Хронологические разбиения: IS / holdout и окна walk-forward (VALIDATION §2, P-01, D-032)."""
 
 from __future__ import annotations
 
