@@ -382,7 +382,7 @@ def test_spread_modes_from_spec() -> None:
     assert worst.spread[0] == pytest.approx(1.559)
     cons = mkt(rows, cost=CostModel(), spread=2.0)
     assert cons.spread[0] == pytest.approx(2.0)  # данные хуже typical → данные
-    assert cons.slip[0] == pytest.approx(0.5 * 1.384)  # P-32
+    assert cons.slip[0] == pytest.approx(0.5 * 1.384)  # D-029
 
 
 # --- эквити, скан, паритет ----------------------------------------------------------------
