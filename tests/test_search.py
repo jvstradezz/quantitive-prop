@@ -43,6 +43,7 @@ from pbl.research.search_space import (
     sample_configs,
 )
 from pbl.research.variants import DailyR, VariantConflict, VariantLog, VariantSpec
+from pbl.robustness.autoreject import AutoRejectInput, autoreject
 from pbl.schemas import Trade
 from pbl.schemas.strategy import ExitSpec
 from pbl.strategies.families import Donchian, Family, MeanReversionZ, RangeBreakout, TrendEma
@@ -227,6 +228,34 @@ def test_scan_and_event_backtest_agree(result: SearchResult) -> None:
         assert all(t.sample in ("IS", "WF") for t in c.trades)
         assert all(t.sl > 0 and t.stop_dist > 0 for t in c.trades), "стоп у каждой сделки"
         assert {t.strategy_id for t in c.trades} == {c.unit.variant_id}
+
+
+def test_autoreject_from_robustness_is_wired_in_as_a_gate(result: SearchResult) -> None:
+    server = load_firms()[0].server_time
+    assert result.candidates
+    for c in result.candidates:
+        direct = autoreject(AutoRejectInput(c.trades, server))
+        assert c.gates["Автоотказ"] is (not direct.rejected)
+        assert ("Автоотказ" in c.details) is direct.rejected
+        assert not direct.get("no_stop").triggered
+
+
+def test_autoreject_blocks_a_candidate_that_trades_like_a_scalper(
+    bars: dict[str, pl.DataFrame], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Каждая сделка — «удержание 0 с, прибыль» → Quick Strike: кандидат не идёт в MC."""
+    real = search.run_events
+
+    def fast(*a: object, **k: object) -> list[Trade]:
+        trades = real(*a, **k)  # type: ignore[arg-type]
+        return [t.model_copy(update={"hold_sec": 5, "r_gross": 1.0, "r_net": 0.9}) for t in trades]
+
+    monkeypatch.setattr(search, "run_events", fast)
+    res = run_search(bars, params(tmp_path, explore=True))
+    assert res.candidates
+    assert all(c.gates["Автоотказ"] is False for c in res.candidates)
+    assert all("Quick Strike" in c.details["Автоотказ"] for c in res.candidates)
+    assert all(not c.passed for c in res.candidates)
 
 
 def test_forward_mode_evaluates_only_after_the_selection_window(result: SearchResult) -> None:

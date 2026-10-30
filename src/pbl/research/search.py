@@ -8,7 +8,8 @@
    Каждая проба — конфигурация × инструмент и конфигурация × корзина — пишется в счётчик
    `research/registry/variants/<campaign>.parquet`, даже если провалила S1.
 3. S1 (сделок, PF, E при издержках × 1.5), затем DSR по счётчику / PBO по выжившим.
-4. Топ по Sharpe → событийный бэктест (`backtest`, одна позиция) → экран OOS → проп-MC;
+4. Топ по Sharpe → событийный бэктест (`backtest`, одна позиция) → автоотказ
+   (`robustness.autoreject`: стоп, HFT, Quick Strike, сетка, усреднение) → экран OOS → проп-MC;
    финальный порядок — по P(1-я выплата) при EV₁ > 0.
 
 Режимы (`SearchParams.mode`):
@@ -43,7 +44,6 @@ from pbl.prop.engine import MCConfig, MCEngine
 from pbl.prop.optimize import optimize
 from pbl.prop.rules import compile_offer
 from pbl.prop.servertime import server_date
-from pbl.research.idea_eval import COST_MULT, MIN_PF, MIN_TRADES, s1_stats
 from pbl.research.range_sweep import FIRM, Bundle, make_bundle, window_is_live
 from pbl.research.search_space import (
     GEN_VERSION,
@@ -53,9 +53,19 @@ from pbl.research.search_space import (
     with_tp,
 )
 from pbl.research.variants import DailyR, VariantLog, VariantSpec
+from pbl.robustness.autoreject import AutoRejectInput, autoreject
 from pbl.robustness.dsr import deflated_sharpe, expected_max_sharpe
 from pbl.robustness.pbo import PBOResult, pbo_cscv
 from pbl.robustness.splits import add_months, holdout_start
+from pbl.robustness.stats import s1_stats
+from pbl.robustness.thresholds import (
+    COST_MULT,
+    MAX_PBO,
+    MIN_DSR,
+    MIN_HOLD_SEC,
+    MIN_PF,
+    MIN_TRADES,
+)
 from pbl.schemas import Firm, Trade
 from pbl.strategies.base import Signals
 from pbl.strategies.families import RANGE_WINDOWS, TRADE_SESSIONS, Family, RangeBreakout, RangeFade
@@ -142,8 +152,8 @@ class SearchParams:
     on: dt.date = field(default_factory=lambda: dt.datetime.now(dt.UTC).date())
     budget: Budget = field(default_factory=Budget)
     s1: S1Gate = field(default_factory=S1Gate)
-    min_dsr: float = 0.95
-    max_pbo: float = 0.2
+    min_dsr: float = MIN_DSR
+    max_pbo: float = MAX_PBO
     pbo_blocks: int = 16
     min_eval_trades: int = 30
     programs: tuple[str, ...] = ("fn-stellar-2step",)
@@ -482,10 +492,6 @@ def pf_of(r: np.ndarray[Any, np.dtype[np.float64]]) -> float:
     return float(r[r > 0].sum()) / lose if lose > 0 else math.inf
 
 
-QUICK_STRIKE_SEC, QUICK_STRIKE_SHARE = 30, 0.20
-"""FN Quick Strike (SPEC B2): доля прибыли со сделок короче 30 с должна быть меньше 20%."""
-
-
 def eval_stats(trades: Sequence[Trade]) -> dict[str, float]:
     r = np.asarray([t.r_net for t in trades], dtype=np.float64)
     if r.size == 0:
@@ -498,7 +504,7 @@ def eval_stats(trades: Sequence[Trade]) -> dict[str, float]:
         "mean_r": float(r.mean()),
         "pf": pf_of(r),
         "win_rate": float((r > 0).mean()),
-        "qs": float(profit[hold < QUICK_STRIKE_SEC].sum() / total) if total > 0 else 0.0,
+        "qs": float(profit[hold < MIN_HOLD_SEC].sum() / total) if total > 0 else 0.0,
     }
 
 
@@ -681,7 +687,10 @@ def run_search(bars: dict[str, pl.DataFrame], p: SearchParams) -> SearchResult:
         c.eval_stats = eval_stats(c.eval_trades)
         n_ev, mean_ev = c.eval_stats["n"], c.eval_stats["mean_r"]
         c.gates["OOS E>0 (экран)"] = bool(n_ev >= p.min_eval_trades and mean_ev > 0)
-        c.gates["Quick Strike"] = bool(c.eval_stats["qs"] < QUICK_STRIKE_SHARE)
+        reject = autoreject(AutoRejectInput(c.trades, firm.server_time, family=None))
+        c.gates["Автоотказ"] = not reject.rejected
+        if reject.rejected:
+            c.details["Автоотказ"] = "; ".join(reject.reasons)
         for gate in p.extra_gates:
             res = gate(c, ctx)
             c.gates[res.name] = res.passed

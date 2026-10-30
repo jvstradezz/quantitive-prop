@@ -157,6 +157,37 @@ configs/instruments ────────────────────
 - Допущения: проскальзывание D-029, спред D-030, неоднозначности M1 D-031. Валюта прибыли не USD: USDJPY — курс из цены, GER30 — курс EURUSD передаётся в прогон (O-20, O-21).
 - Проп-MC пока строит путь дня из MAE/MFE (D-020); поминутная эквити `equity_R.parquet` уже пишется и готова для перехода.
 
+### Автопоиск (M4/T12)
+
+`pbl search` — перебор семейств стратегий на M1 с учётом каждой пробы и ранжированием по P(1-я выплата).
+
+```
+bars (Parquet, M1) ─► make_windows: выбор [first, sel_end) · оценка [sel_end, cut) · holdout не грузится
+        │
+        ▼
+ enumerate_configs (семейство × выход × фильтр) ─► sample_configs (бюджет сканов, seed)
+        │
+        ▼  scan_stage: векторный scan по корзинам класса актива ─► VariantLog.add_many (все пробы)
+        ▼
+ S1 ─► DSR / PBO по счётчику ─► схлопывание одинаковых исходов
+        ▼
+ run_events (одна позиция) ─► autoreject (T11) ─► extra_gates (S2/S3, хук) ─► экран OOS
+        ▼
+ mc_summary: оптимизатор риска + MCEngine ─► rank_key (P(1-я выплата), EV₁ > 0)
+        ▼
+ reports/<кампания>/ (summary.md, leaderboard.csv, manifest.json, top-N-<ключ>/)
+```
+
+| Модуль | Что делает |
+|---|---|
+| `strategies/features.py` | `FeatureCache`: бары старшего ТФ (только закрытые), ATR, EMA, дневные фильтры тренда и волатильности — по данным раньше решения |
+| `strategies/families.py` | 6 семейств (`Donchian`, `MeanReversionZ`, `TrendEma`, `SessionDrive`, `RangeBreakout`, `RangeFade`), сессии по часам сервера; один вход в день на инструмент |
+| `research/search_space.py` | сетка (`family_grid`, 194 набора), `SearchConfig`, `enumerate_configs`, `sample_configs` (бюджет), версия генератора `GEN_VERSION` |
+| `research/search.py` | окна, скан, учёт проб, S1/DSR/PBO, событийный бэктест, автоотказ, MC, `run_search`; хуки `extra_gates`, `eval_trades` |
+| `research/search_report.py` | `summary.md` (воронка, семейства, топ-10, оговорки), `leaderboard.csv`, `manifest.json`, полный отчёт проп-MC для топа, сводка ≤ 30 строк для чата |
+
+Зависимости: `research` → `robustness` → `prop` → `engine` → `strategies`; семейства не знают о реестре и фирмах. Тесты `check_no_lookahead` гоняют каждое семейство с отсечением сразу после баров решения.
+
 ## 10. Исполнение (M6–M7, кратко)
 
 ```

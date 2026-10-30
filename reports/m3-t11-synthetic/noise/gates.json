@@ -1,0 +1,16 @@
+{
+  "strategy_id": "synth-noise",
+  "verdict": "отклонена: ни один вариант не прошёл S1 (сделок, PF, E при издержках × 1.5)",
+  "splits": {
+    "first": "2019-01-01",
+    "cut": "2023-03-15",
+    "last": "2024-12-31"
+  },
+  "n_trials": 3,
+  "n_eff": 1,
+  "wfe": NaN,
+  "pbo": 0.569075369075369,
+  "candidates": [],
+  "holdout": null,
+  "s3": null
+}

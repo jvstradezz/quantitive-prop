@@ -17,11 +17,14 @@ import pytest
 from typer.testing import CliRunner
 
 import pbl.robustness.bands as bands
+import pbl.robustness.stats as rstats
+import pbl.robustness.walkforward as rwf
 from pbl.cli import app
 from pbl.prop.engine import MCConfig
 from pbl.research import idea_eval, idea_report, idea_run, range_sweep, registry
 from pbl.research.idea_eval import pooled
 from pbl.research.range_sweep import Bundle, make_bundle
+from pbl.robustness.autoreject import AutoReject, AutoRejectInput
 
 BarsFactory = Callable[..., pl.DataFrame]
 ON = dt.date(2026, 10, 29)
@@ -42,21 +45,26 @@ def fast_grid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(idea_run, "grid", small_grid)
 
 
+def _no_reject(inp: AutoRejectInput) -> AutoReject:
+    return AutoReject(findings=(), n_trades=len(inp.trades))
+
+
 @pytest.fixture
 def relaxed(monkeypatch: pytest.MonkeyPatch) -> None:
     for mod, name, value in (
         (idea_eval, "MIN_TRADES", 1),
         (idea_eval, "MIN_PF", 0.0),
-        (idea_eval, "COST_MULT", 0.0),
-        (idea_eval, "WF_MIN_TRADES", 1),
-        (idea_eval, "MIN_YEAR_TRADES", 1),
-        (idea_eval, "YEAR_SHARE", 1.0),
+        (rstats, "COST_MULT", 0.0),
+        (rwf, "WF_MIN_TRADES", 1),
+        (rstats, "MIN_YEAR_TRADES", 1),
+        (rstats, "YEAR_SHARE", 1.0),
         (idea_run, "wfe", lambda picks: 1.0),  # на случайном блуждании WFE часто NaN
         (idea_run, "year_stability", lambda t: (True, pl.DataFrame())),  # один год данных
         (idea_run, "SENS_PF", 0.0),
         (idea_run, "MIN_DSR", 0.0),
         (idea_run, "MIN_INSTRUMENTS", 0),
         (idea_run, "HO_MIN_MEAN_R", -1e9),
+        (idea_run, "autoreject", _no_reject),  # случайные бары: стопы в баре входа, узкие окна
     ):
         monkeypatch.setattr(mod, name, value)
 
@@ -162,16 +170,17 @@ def opened(
         for mod, name, value in (
             (idea_eval, "MIN_TRADES", 1),
             (idea_eval, "MIN_PF", 0.0),
-            (idea_eval, "COST_MULT", 0.0),
-            (idea_eval, "WF_MIN_TRADES", 1),
-            (idea_eval, "MIN_YEAR_TRADES", 1),
-            (idea_eval, "YEAR_SHARE", 1.0),
+            (rstats, "COST_MULT", 0.0),
+            (rwf, "WF_MIN_TRADES", 1),
+            (rstats, "MIN_YEAR_TRADES", 1),
+            (rstats, "YEAR_SHARE", 1.0),
             (idea_run, "wfe", lambda picks: 1.0),
             (idea_run, "year_stability", lambda t: (True, pl.DataFrame())),
             (idea_run, "SENS_PF", 0.0),
             (idea_run, "MIN_DSR", 0.0),
             (idea_run, "MIN_INSTRUMENTS", 0),
             (idea_run, "HO_MIN_MEAN_R", -1e9),
+            (idea_run, "autoreject", _no_reject),
             (bands, "REQUIRED", ()),
             (idea_run, "grid", small_grid),
         ):
