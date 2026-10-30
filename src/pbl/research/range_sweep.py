@@ -104,22 +104,26 @@ class ExitCfg:
         )
 
 
-def _close() -> ExitSpec:
-    return ExitSpec(kind="session_close", params={"at": UNTIL})
+def _close(until: str = UNTIL) -> ExitSpec:
+    return ExitSpec(kind="session_close", params={"at": until})
 
 
-def exit_grid() -> dict[str, ExitCfg]:
-    """Семь выходов карточки: RR 1:1, 1:2, 1:3, трейлинг, частичный, безубыток, по времени."""
-    ex = Exits(close_at=UNTIL)
+def exit_grid(until: str = UNTIL) -> dict[str, ExitCfg]:
+    """Семь выходов карточки: RR 1:1, 1:2, 1:3, трейлинг, частичный, безубыток, по времени.
+
+    `until` — время сервера, к которому закрываются позиции (по умолчанию закрытие NY).
+    """
+    close = _close(until)
+    ex = Exits(close_at=until)
     return {
-        "rr_1_1": ExitCfg("rr_1_1", 1.0, ex, (ExitSpec(kind="rr", params={"rr": 1.0}), _close())),
-        "rr_1_2": ExitCfg("rr_1_2", 2.0, ex, (ExitSpec(kind="rr", params={"rr": 2.0}), _close())),
-        "rr_1_3": ExitCfg("rr_1_3", 3.0, ex, (ExitSpec(kind="rr", params={"rr": 3.0}), _close())),
+        "rr_1_1": ExitCfg("rr_1_1", 1.0, ex, (ExitSpec(kind="rr", params={"rr": 1.0}), close)),
+        "rr_1_2": ExitCfg("rr_1_2", 2.0, ex, (ExitSpec(kind="rr", params={"rr": 2.0}), close)),
+        "rr_1_3": ExitCfg("rr_1_3", 3.0, ex, (ExitSpec(kind="rr", params={"rr": 3.0}), close)),
         "trailing": ExitCfg(
             "trailing",
             None,
             replace(ex, trail_start_r=1.0, trail_dist_r=1.0),
-            (ExitSpec(kind="trailing", params={"start_r": 1.0, "dist_r": 1.0}), _close()),
+            (ExitSpec(kind="trailing", params={"start_r": 1.0, "dist_r": 1.0}), close),
         ),
         "partial": ExitCfg(
             "partial",
@@ -128,7 +132,7 @@ def exit_grid() -> dict[str, ExitCfg]:
             (
                 ExitSpec(kind="rr", params={"rr": 2.0}),
                 ExitSpec(kind="partial", params={"at_r": 1.0, "frac": 0.5}),
-                _close(),
+                close,
             ),
         ),
         "breakeven": ExitCfg(
@@ -138,10 +142,10 @@ def exit_grid() -> dict[str, ExitCfg]:
             (
                 ExitSpec(kind="rr", params={"rr": 2.0}),
                 ExitSpec(kind="breakeven", params={"at_r": 1.0}),
-                _close(),
+                close,
             ),
         ),
-        "time_exit": ExitCfg("time_exit", None, ex, (_close(),)),
+        "time_exit": ExitCfg("time_exit", None, ex, (close,)),
     }
 
 

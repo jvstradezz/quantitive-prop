@@ -199,6 +199,15 @@ class ReturnsMatrix:
     values: F64
 
 
+def _same_result(old: dict[str, Any], daily: DailyR, net_r: float) -> bool:
+    return bool(
+        old["n_trades"] == daily.n_trades
+        and old["is_start"] == daily.start
+        and old["is_end"] == daily.end
+        and abs(old["net_r"] - net_r) <= 1e-9 * max(1.0, abs(net_r))
+    )
+
+
 class VariantLog:
     """Лог проб одной идеи. Изменения копятся в памяти до `save()`."""
 
@@ -244,52 +253,76 @@ class VariantLog:
         keep_series: bool = True,
     ) -> bool:
         """Записать пробу. True — новая; False — та же проба уже была с тем же результатом."""
-        if spec.idea_id != self.idea_id:
-            raise ValueError(f"вариант идеи {spec.idea_id} в логе {self.idea_id}")
-        vid = spec.variant_id
-        net_r = float(sum(daily.r))
-        if vid in set(self.ids()):
-            old = self._frame.filter(pl.col("variant_id") == vid).row(0, named=True)
-            same = (
-                old["n_trades"] == daily.n_trades
-                and old["is_start"] == daily.start
-                and old["is_end"] == daily.end
-                and abs(old["net_r"] - net_r) <= 1e-9 * max(1.0, abs(net_r))
-            )
-            if not same:
-                raise VariantConflict(
-                    f"{vid}: результат изменился (было {old['n_trades']} сделок, "
-                    f"{old['net_r']:.6f} R; стало {daily.n_trades}, {net_r:.6f} R); "
-                    "поднимите version варианта"
-                )
-            return False
-        pf = daily.win_r / abs(daily.loss_r) if daily.loss_r < 0 else 0.0
-        row: dict[str, Any] = {
-            "variant_id": vid,
-            "idea_id": spec.idea_id,
-            "family": spec.family,
-            "version": spec.version,
-            "instrument": spec.instrument,
-            "timeframe": spec.timeframe,
-            "session": spec.session,
-            "firm_profile": spec.firm_profile,
-            "spec_json": spec.canonical_json(),
-            "run_id": run_id,
-            "logged_on": on,
-            "is_start": daily.start,
-            "is_end": daily.end,
-            "n_trades": daily.n_trades,
-            "n_days": daily.n_days,
-            "net_r": net_r,
-            "pf": pf,
-            **daily_stats(daily),
-            "series_dates": list(daily.dates) if keep_series else None,
-            "series_r": list(daily.r) if keep_series else None,
-        }
-        self._frame = pl.concat(
-            [self._frame, pl.DataFrame([row], schema=SCHEMA)], how="vertical", rechunk=True
+        return self.add_many([(spec, daily, keep_series)], run_id=run_id, on=on) == 1
+
+    def add_many(
+        self,
+        items: Iterable[tuple[VariantSpec, DailyR, bool]],
+        *,
+        run_id: str,
+        on: dt.date,
+    ) -> int:
+        """Пакетная запись проб `(спека, дневной ряд, хранить ли ряд)`: один `concat` на пакет.
+
+        Возвращает число новых строк. Повтор с тем же результатом пропускается, с другим —
+        `VariantConflict` (в том числе внутри самого пакета); при ошибке лог не меняется.
+        """
+        known = set(self.ids())
+        stored: dict[str, dict[str, Any]] | None = (
+            None  # строки лога, поднимаются при первом повторе
         )
-        return True
+        new_rows: dict[str, dict[str, Any]] = {}
+        for spec, daily, keep_series in items:
+            if spec.idea_id != self.idea_id:
+                raise ValueError(f"вариант идеи {spec.idea_id} в логе {self.idea_id}")
+            vid = spec.variant_id
+            net_r = float(sum(daily.r))
+            old = new_rows.get(vid)
+            if old is None and vid in known:
+                if stored is None:
+                    cols = ["variant_id", "n_trades", "is_start", "is_end", "net_r"]
+                    stored = {
+                        r["variant_id"]: r for r in self._frame.select(cols).iter_rows(named=True)
+                    }
+                old = stored[vid]
+            if old is not None:
+                if not _same_result(old, daily, net_r):
+                    raise VariantConflict(
+                        f"{vid}: результат изменился (было {old['n_trades']} сделок, "
+                        f"{old['net_r']:.6f} R; стало {daily.n_trades}, {net_r:.6f} R); "
+                        "поднимите version варианта"
+                    )
+                continue
+            pf = daily.win_r / abs(daily.loss_r) if daily.loss_r < 0 else 0.0
+            new_rows[vid] = {
+                "variant_id": vid,
+                "idea_id": spec.idea_id,
+                "family": spec.family,
+                "version": spec.version,
+                "instrument": spec.instrument,
+                "timeframe": spec.timeframe,
+                "session": spec.session,
+                "firm_profile": spec.firm_profile,
+                "spec_json": spec.canonical_json(),
+                "run_id": run_id,
+                "logged_on": on,
+                "is_start": daily.start,
+                "is_end": daily.end,
+                "n_trades": daily.n_trades,
+                "n_days": daily.n_days,
+                "net_r": net_r,
+                "pf": pf,
+                **daily_stats(daily),
+                "series_dates": list(daily.dates) if keep_series else None,
+                "series_r": list(daily.r) if keep_series else None,
+            }
+        if new_rows:
+            self._frame = pl.concat(
+                [self._frame, pl.DataFrame(list(new_rows.values()), schema=SCHEMA)],
+                how="vertical",
+                rechunk=True,
+            )
+        return len(new_rows)
 
     def save(self) -> None:
         """Атомарная запись; строки отсортированы по id — минимум шума в git."""
