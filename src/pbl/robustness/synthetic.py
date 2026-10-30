@@ -222,7 +222,7 @@ CASES: dict[str, tuple[str, str]] = {
 """Имя → (что заложено, правильный ответ)."""
 
 
-def synthetic_case(name: str, *, seed: int = 11) -> tuple[SyntheticStudy, Space]:
+def synthetic_case(name: str, *, seed: int = 1) -> tuple[SyntheticStudy, Space]:
     if name == "edge":
         return SyntheticStudy(flat(0.62), seed=seed, strategy_id="synth-edge"), _space()
     if name == "noise":

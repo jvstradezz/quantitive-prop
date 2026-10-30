@@ -56,6 +56,7 @@ from pbl.research.range_sweep import (
     variant_spec,
 )
 from pbl.research.variants import VariantLog
+from pbl.robustness.autoreject import AutoReject, AutoRejectInput, autoreject
 from pbl.robustness.bands import DayStats, DiffResult, metrics
 from pbl.robustness.dsr import dsr_for_trials
 from pbl.robustness.pbo import PBOResult, pbo_cscv
@@ -72,7 +73,7 @@ from pbl.robustness.thresholds import (
 from pbl.schemas import Trade
 
 GATES = ("S1", "WFE", "DSR/PBO", "чувствительность", "годы", "инструменты", "фильтр дня")
-HOLDOUT_GATES = ("полоса MC", "E > 0", "инструменты", "фильтр дня")
+HOLDOUT_GATES = ("полоса MC", "E > 0", "инструменты", "фильтр дня", "автоотказ")
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,7 @@ class HoldoutStage:
     trades: list[Trade]
     prop: PropReport | None
     s3_ok: bool | None
+    reject: AutoReject | None = None
 
     @property
     def passed(self) -> bool:
@@ -397,6 +399,9 @@ def run_holdout(bundles: dict[str, Bundle], stage: ISStage, p: RunParams) -> Hol
         "фильтр дня": filt_ok,
     }
     trades = oos_trades(bundles, stage, cfg, p.run_id)
+    server = next(f for f in load_firms() if f.id == "fundednext").server_time
+    rej = autoreject(AutoRejectInput(trades, server, family="range_session"))
+    gates["автоотказ"] = not rej.rejected
     ho = [t for t in trades if t.sample == "HOLDOUT"]
     scan_r = float(res.stats["mean_r"] * res.n_trades)
     bt_r = float(sum(t.r_net for t in ho))
@@ -412,7 +417,7 @@ def run_holdout(bundles: dict[str, Bundle], stage: ISStage, p: RunParams) -> Hol
             for r in prop.rows
             if not math.isnan(r.stats.p1)
         )
-    return HoldoutStage(res, diff, twin_sharpe, sharpe, gap, gates, trades, prop, s3_ok)
+    return HoldoutStage(res, diff, twin_sharpe, sharpe, gap, gates, trades, prop, s3_ok, rej)
 
 
 # --- вердикт ------------------------------------------------------------------------------

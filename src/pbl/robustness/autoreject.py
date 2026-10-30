@@ -96,12 +96,33 @@ def no_stop(trades: Sequence[Trade]) -> Finding:
 
 
 def hft(trades: Sequence[Trade], server: ServerTime) -> Finding:
-    short = [t for t in trades if t.hold_sec < MIN_HOLD_SEC]
+    """HFT: > 200 сделок в день (B4) или медианное удержание < 30 с."""
     per_day = Counter(trade_day(t.open_utc, server)[0] for t in trades)
     busy = max(per_day.values(), default=0)
-    hit = bool(short) or busy > MAX_TRADES_DAY
-    detail = f"короче {MIN_HOLD_SEC} с: {len(short)}; максимум сделок в день: {busy}"
-    return Finding("hft", "HFT / Quick Strike", hit, detail, _ids(short))
+    med = float(np.median([t.hold_sec for t in trades])) if trades else math.nan
+    hit = busy > MAX_TRADES_DAY or (not math.isnan(med) and med < MIN_HOLD_SEC)
+    detail = f"максимум сделок в день: {busy}; медиана удержания {med:.0f} с"
+    return Finding("hft", "HFT", hit, detail)
+
+
+def quick_strike(trades: Sequence[Trade]) -> Finding:
+    """Quick Strike FN 2.6: доля прибыли сделок короче 30 с ≥ 20% (порог предупреждения фирмы).
+
+    Убыточная сделка короче 30 с (стоп в первые секунды) правило не нарушает (P-36).
+    """
+    name = "Quick Strike (B2)"
+    profit = sum(t.r_net for t in trades if t.r_net > 0)
+    short = [t for t in trades if t.hold_sec < MIN_HOLD_SEC]
+    if profit <= 0:
+        return Finding("quick_strike", name, None, "нет прибыли", _ids(short))
+    share = sum(t.r_net for t in short if t.r_net > 0) / profit
+    return Finding(
+        "quick_strike",
+        name,
+        share >= SHORT_PROFIT_SHARE,
+        f"{100 * share:.0f}% прибыли — сделки короче {MIN_HOLD_SEC} с ({len(short)} сделок)",
+        _ids(t for t in short if t.r_net > 0),
+    )
 
 
 def tick_scalping(trades: Sequence[Trade]) -> Finding:
@@ -121,21 +142,6 @@ def tick_scalping(trades: Sequence[Trade]) -> Finding:
     take = "—" if math.isnan(med_take) else f"{med_take:.1f}"
     detail = f"медиана удержания {med_hold / 60:.1f} мин; медианный тейк {take} спредов"
     return Finding("scalping", "тик-скальпинг", hit, detail)
-
-
-def short_profit(trades: Sequence[Trade]) -> Finding:
-    """B2: доля прибыли сделок короче 2 мин < 20% всей прибыли."""
-    profit = sum(t.r_net for t in trades if t.r_net > 0)
-    if profit <= 0:
-        return Finding("short_profit", "прибыль коротких сделок (B2)", None, "нет прибыли")
-    short = sum(t.r_net for t in trades if t.r_net > 0 and t.hold_sec < SCALP_MEDIAN_HOLD_SEC)
-    share = short / profit
-    return Finding(
-        "short_profit",
-        "прибыль коротких сделок (B2)",
-        share >= SHORT_PROFIT_SHARE,
-        f"{100 * share:.0f}% прибыли — сделки короче 2 мин",
-    )
 
 
 def martingale(trades: Sequence[Trade], risk: Sequence[float] | None) -> Finding:
@@ -252,8 +258,8 @@ def autoreject(inp: AutoRejectInput) -> AutoReject:
         grid(t),
         averaging(t),
         hft(t, inp.server),
+        quick_strike(t),
         tick_scalping(t),
-        short_profit(t),
         family(inp.family),
         *inp.extra,
     )

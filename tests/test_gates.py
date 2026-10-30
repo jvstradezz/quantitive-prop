@@ -1,0 +1,493 @@
+"""Конвейер гейтов S1–S3 на синтетике с известным ответом, автоотказ, аудит, N_eff (M3/T11)."""
+
+from __future__ import annotations
+
+import dataclasses
+import datetime as dt
+import math
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+import pytest
+from typer.testing import CliRunner
+
+from pbl.cli import app
+from pbl.config import load_firms
+from pbl.prop.engine import MCConfig
+from pbl.prop.io import write_trades_csv
+from pbl.research.gates_run import run_idea_gates
+from pbl.research.variants import VariantSpec
+from pbl.robustness import audit, autoreject
+from pbl.robustness.gates import (
+    GateConfig,
+    GateReport,
+    HoldoutReopened,
+    OnceGuard,
+    Runner,
+    perturb,
+    run_gates,
+    run_holdout,
+    run_is,
+)
+from pbl.robustness.neff import correlation_clusters, dsr_effective
+from pbl.robustness.report import write_gates_report
+from pbl.robustness.study import Params, Space
+from pbl.robustness.synthetic import CASES, UTC_SERVER, SyntheticStudy, synthetic_case
+from pbl.robustness.trades import trades_frame
+from pbl.schemas import Trade
+from pbl.schemas.strategy import ExitSpec
+
+FAST = GateConfig(n_paths=1000, top=6, on=dt.date(2026, 10, 30))
+SMALL_MC = MCConfig(
+    n_paths=1_000, opt_paths=400, seed=3, outer_boot=4, outer_paths=200, skip_repeats=2
+)
+
+
+@pytest.fixture(scope="module")
+def reports() -> dict[str, GateReport]:
+    out = {}
+    for name in CASES:
+        study, space = synthetic_case(name)
+        out[name] = run_gates(study, space, FAST)
+    return out
+
+
+# --- известные ответы ---------------------------------------------------------------------
+
+
+def test_edge_passes_every_gate_up_to_s3(reports: dict[str, GateReport]) -> None:
+    rep = reports["edge"]
+    fin = rep.finalist
+    assert fin is not None
+    assert all(v is not False for v in fin.gates.values())
+    assert rep.holdout is not None
+    assert rep.holdout.passed
+    assert rep.verdict.startswith("доработать: S1–S2 пройдены, проп-MC не запускался")
+    assert rep.wfe >= 0.5
+    assert rep.clusters.n_eff == 1, "варианты на общей случайности — одна независимая проба"
+
+
+def test_noise_is_rejected_at_s1(reports: dict[str, GateReport]) -> None:
+    rep = reports["noise"]
+    assert not rep.candidates
+    assert rep.holdout is None
+    assert rep.verdict.startswith("отклонена: ни один вариант не прошёл S1")
+
+
+def test_edge_that_vanishes_out_of_sample_fails_the_holdout(
+    reports: dict[str, GateReport],
+) -> None:
+    rep = reports["decay"]
+    assert rep.finalist is not None, "на IS перевес настоящий"
+    assert rep.holdout is not None
+    assert rep.holdout.gates["E > 0"] is False
+    assert rep.holdout.band.bands["mean_r"].worse
+    assert rep.verdict.startswith("отклонена: финалист не прошёл holdout")
+
+
+def test_single_instrument_edge_is_rejected(reports: dict[str, GateReport]) -> None:
+    rep = reports["single"]
+    assert rep.finalist is None
+    assert all(c.gates["инструменты"] is False for c in rep.candidates)
+    assert all(c.gates["S1"] for c in rep.candidates), "корзина в целом прибыльна"
+    assert "инструменты" in rep.verdict
+
+
+def test_day_filter_without_effect_does_not_hold(reports: dict[str, GateReport]) -> None:
+    rep = reports["fake-filter"]
+    filtered = [c for c in rep.candidates if c.params["dow"] == "author"]
+    assert filtered, "варианты с фильтром прошли S1 и попали в кандидаты"
+    assert all(c.gates["фильтры"] is False for c in filtered)
+    fin = rep.finalist
+    assert fin is not None
+    assert fin.params["dow"] == "none"
+
+
+def test_real_day_filter_holds_and_wins(reports: dict[str, GateReport]) -> None:
+    rep = reports["real-filter"]
+    fin = rep.finalist
+    assert fin is not None
+    assert fin.params["dow"] == "author"
+    (check,) = fin.filters
+    assert check.holds
+    assert check.diff is not None
+    assert check.diff.low > 0
+    assert check.score > check.twin_score
+    assert rep.holdout is not None
+    assert rep.holdout.gates["фильтры"] is True
+
+
+def test_fragile_parameter_fails_sensitivity(reports: dict[str, GateReport]) -> None:
+    rep = reports["fragile"]
+    (c,) = rep.candidates
+    assert c.gates["S1"]
+    assert c.gates["чувствительность"] is False
+    assert {s.value for s in c.sens} == {24, 27, 33, 36}
+    assert max(s.pf for s in c.sens) < 1.15
+    assert rep.holdout is None, "holdout не открывается без финалиста"
+
+
+def test_s3_runs_on_oos_trades_and_reports_audit(tmp_path: Path) -> None:
+    study, space = synthetic_case("real-filter")
+    fn = tuple(f for f in load_firms() if f.id == "fundednext")
+    cfg = GateConfig(
+        n_paths=1000,
+        firms=fn,
+        mc=SMALL_MC,
+        program_ids=("fn-stellar-2step",),
+        on=dt.date(2026, 10, 30),
+    )
+    rep = run_gates(study, space, cfg)
+    assert rep.s3 is not None
+    samples = {t.sample for t in rep.s3.trades}
+    assert samples == {"WF", "HOLDOUT"}
+    cut = rep.splits.cut_ord
+    run = Runner(study)
+    assert all(run.day(t) >= cut for t in rep.s3.trades if t.sample == "HOLDOUT")
+    assert all(run.day(t) < cut for t in rep.s3.trades if t.sample == "WF")
+    assert rep.s3.passed
+    assert rep.verdict.startswith("в демо")
+    codes = {a.code: a for a in rep.s3.audit}
+    assert set(codes) == {"loss_to_win", "holdout_better", "streak"}
+    assert codes["streak"].flagged is False
+    path = write_gates_report(rep, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert "Вердикт:** в демо" in text
+    assert (tmp_path / "gates.json").exists()
+    assert (tmp_path / "prop").is_dir()
+
+
+def test_holdout_opens_once() -> None:
+    study, space = synthetic_case("edge")
+    rep = run_is(study, space, FAST)
+    guard = OnceGuard()
+    run_holdout(study, space, rep, FAST, guard)
+    with pytest.raises(HoldoutReopened):
+        run_holdout(study, space, rep, FAST, guard)
+
+
+def test_holdout_is_not_read_before_it_is_opened() -> None:
+    """IS-стадия не видит ни одной сделки holdout: стираем их — кандидаты те же."""
+    study, space = synthetic_case("edge")
+    rep = run_is(study, space, FAST)
+
+    cut = rep.splits.cut_ord
+    run = Runner(study)
+
+    class Truncated(SyntheticStudy):
+        def frame(self, params: Params) -> pl.DataFrame:
+            return super().frame(params).filter(pl.col("day") < cut)
+
+        def trades(self, params: Params) -> list[Trade]:
+            return [t for t in super().trades(params) if run.day(t) < cut]
+
+    blind = Truncated(**{f.name: getattr(study, f.name) for f in dataclasses.fields(study)})
+    rep2 = run_is(blind, space, FAST)
+    assert [c.key for c in rep2.candidates] == [c.key for c in rep.candidates]
+    assert [c.gates for c in rep2.candidates] == [c.gates for c in rep.candidates]
+
+
+# --- счётчик вариантов идеи ---------------------------------------------------------------
+
+
+def _spec(params: Params) -> VariantSpec:
+    return VariantSpec(
+        idea_id="IDEA-0999",
+        family="synthetic",
+        instrument="BASKET:NAS100+US30+SPX500",
+        timeframe="M1",
+        params=dict(params),
+        exits=[ExitSpec(kind="rr", params={"tp_r": 1.0})],
+        firm_profile="fundednext",
+    )
+
+
+def test_idea_gates_log_every_trial_and_refuse_a_second_holdout(tmp_path: Path) -> None:
+    study, space = synthetic_case("fake-filter")
+    first = run_idea_gates(study, space, _spec, "IDEA-0999", FAST, registry=tmp_path, save=True)
+    assert first.new_rows == len(space.with_twins()) == 6
+    assert first.report.holdout is not None
+    with pytest.raises(HoldoutReopened):
+        run_idea_gates(
+            study,
+            space,
+            _spec,
+            "IDEA-0999",
+            FAST,
+            holdout_opened_at=dt.date(2026, 10, 30),
+            registry=tmp_path,
+        )
+    bumped = run_idea_gates(
+        study,
+        space,
+        lambda p: _spec(p).model_copy(update={"version": "v2"}),
+        "IDEA-0999",
+        FAST,
+        version="v2",
+        holdout_opened_at=dt.date(2026, 10, 30),
+        registry=tmp_path,
+    )
+    assert bumped.new_rows == 6, "новая версия — новые пробы"
+    assert bumped.report.n_trials == 12, "пробы v1 входят в N сырыми"
+    assert bumped.report.holdout is not None
+
+
+def test_prior_trials_raise_the_dsr_bar() -> None:
+    study, space = synthetic_case("edge")
+    base = run_is(study, space, FAST).candidates[0]
+    noisy = GateConfig(
+        n_paths=1000, top=6, extra_trials=500, prior_sharpes=tuple(np.linspace(-0.1, 0.1, 500))
+    )
+    more = run_is(study, space, noisy).candidates[0]
+    assert more.dsr.n_eff == base.dsr.n_eff + 500
+    assert more.dsr.sr0 > base.dsr.sr0
+
+
+# --- чувствительность и пространство ------------------------------------------------------
+
+
+def test_perturb_scales_floats_and_steps_integers() -> None:
+    space = Space(variants=[], numeric=("n", "x", "z", "flag"), integer=frozenset({"n"}))
+    out = perturb({"n": 3, "x": 2.0, "z": 0.0, "flag": True, "s": "a"}, space)
+    ns = [p["n"] for name, _, p in out if name == "n"]
+    xs = [p["x"] for name, _, p in out if name == "x"]
+    assert ns == [2, 2, 4, 4], "±10% от 3 округляется в 3 → шаг ±1"
+    assert xs == pytest.approx([1.6, 1.8, 2.2, 2.4])
+    assert all(name in ("n", "x") for name, _, _ in out), "ноль и bool не масштабируются"
+
+
+def test_space_adds_unfiltered_twins_once() -> None:
+    _, space = synthetic_case("fake-filter")
+    only_filtered = Space(
+        variants=[v for v in space.variants if v["dow"] == "author"], filters=space.filters
+    )
+    twins = only_filtered.with_twins()
+    assert len(twins) == 6
+    assert sum(1 for v in twins if v["dow"] == "none") == 3
+
+
+# --- N_eff и DSR --------------------------------------------------------------------------
+
+
+def test_correlation_clusters_count_groups() -> None:
+    rng = np.random.default_rng(5)
+    base = rng.normal(size=(800, 3))
+    x = np.repeat(base, 4, axis=1) + 0.3 * rng.normal(size=(800, 12))
+    cl = correlation_clusters(x)
+    assert cl.n_eff == 3
+    assert len(set(cl.labels.tolist())) == 3
+    indep = correlation_clusters(rng.normal(size=(800, 10)))
+    assert indep.n_eff == 10
+
+
+def test_dsr_effective_equals_raw_for_independent_trials() -> None:
+    rng = np.random.default_rng(6)
+    x = rng.normal(0.0, 1.0, size=(500, 50))
+    cl = correlation_clusters(x)
+    best = int(cl.sharpe.argmax())
+    res = dsr_effective(float(cl.sharpe[best]), 500, 0.0, 3.0, cl.sharpe, cl)
+    assert res.n_eff == res.n_raw == 50
+    assert res.dsr == pytest.approx(res.dsr_raw, rel=0.2)
+    assert res.dsr < 0.95, "лучший из 50 шумов не проходит DSR"
+
+
+def test_dsr_effective_is_milder_for_correlated_copies() -> None:
+    rng = np.random.default_rng(7)
+    sig = rng.normal(0.08, 1.0, size=(1000, 1))
+    x = sig + 0.2 * rng.normal(size=(1000, 40))
+    cl = correlation_clusters(x)
+    best = int(cl.sharpe.argmax())
+    res = dsr_effective(float(cl.sharpe[best]), 1000, 0.0, 3.0, cl.sharpe, cl)
+    assert res.n_eff == 1
+    assert res.dsr > res.dsr_raw
+
+
+# --- автоотказ ----------------------------------------------------------------------------
+
+
+T0 = dt.datetime(2024, 3, 4, 14, 0, tzinfo=dt.UTC)
+
+
+def trade(
+    i: int,
+    *,
+    side: str = "long",
+    entry: float = 100.0,
+    sl: float | None = None,
+    tp: float | None = None,
+    start: dt.timedelta = dt.timedelta(0),
+    hold: int = 3600,
+    r: float = 1.0,
+    spread_r: float = 0.02,
+) -> Trade:
+    sign = 1.0 if side == "long" else -1.0
+    stop = sl if sl is not None else entry - sign * 10.0
+    return Trade(
+        trade_id=f"t{i}",
+        strategy_id="x",
+        variant_id="v",
+        symbol="NAS100",
+        side=side,  # type: ignore[arg-type]
+        open_utc=T0 + start,
+        close_utc=T0 + start + dt.timedelta(seconds=hold),
+        entry=entry,
+        exit=entry + sign * 10.0 * r,
+        sl=stop,
+        tp=tp if tp is not None else entry + sign * 20.0,
+        stop_dist=10.0 if math.isnan(stop) else max(abs(entry - stop), 1e-9),
+        point_value=1.0,
+        r_gross=r + spread_r,
+        cost_spread_r=spread_r,
+        cost_comm_r=0.0,
+        cost_swap_r=0.0,
+        cost_slip_r=0.0,
+        r_net=r,
+        mae_r=-0.5,
+        mfe_r=1.0,
+        hold_sec=hold,
+        exit_reason="tp",
+        sample="IS",
+    )
+
+
+def daily(n: int, **kw: object) -> list[Trade]:
+    return [trade(i, start=dt.timedelta(days=i), **kw) for i in range(n)]  # type: ignore[arg-type]
+
+
+def run_ar(trades: list[Trade], **kw: object) -> autoreject.AutoReject:
+    return autoreject.autoreject(autoreject.AutoRejectInput(trades, UTC_SERVER, **kw))  # type: ignore[arg-type]
+
+
+def test_clean_synthetic_strategy_has_no_findings() -> None:
+    study, space = synthetic_case("edge")
+    trades = study.trades(space.variants[0])
+    res = run_ar(trades, family="breakout")
+    assert not res.rejected, res.reasons
+    assert res.get("martingale").triggered is None, "без риска сделок мартингейл не виден"
+
+
+def test_missing_or_wrong_side_stop_rejects() -> None:
+    res = run_ar([*daily(3), trade(9, sl=float("nan")), trade(10, sl=105.0)])
+    f = res.get("no_stop")
+    assert f.triggered
+    assert set(f.trade_ids) == {"t9", "t10"}
+
+
+def test_hft_by_count_and_by_median_hold() -> None:
+    burst = [trade(i, start=dt.timedelta(seconds=60 * i), hold=45) for i in range(201)]
+    f = run_ar(burst).get("hft")
+    assert f.triggered
+    assert "201" in f.detail
+    assert run_ar(daily(5, hold=20)).get("hft").triggered
+    assert run_ar(daily(5)).get("hft").triggered is False
+
+
+def test_quick_strike_counts_profit_not_stop_outs() -> None:
+    # стопы в первые 10 с — убытки, правило FN 2.6 их не касается
+    stops = [trade(10 + i, hold=10, r=-1.0) for i in range(3)]
+    assert run_ar([*daily(5), *stops]).get("quick_strike").triggered is False
+    # 2 из 6 прибыльных сделок короче 30 с — 33% прибыли
+    fast_wins = [trade(20 + i, hold=20, r=1.0) for i in range(2)]
+    f = run_ar([*daily(4), *fast_wins]).get("quick_strike")
+    assert f.triggered
+    assert "33%" in f.detail
+
+
+def test_tick_scalping_by_hold_and_by_take() -> None:
+    assert run_ar(daily(5, hold=90)).get("scalping").triggered
+    # тейк 2 пункта при спреде 0.02R × 10 = 0.2 пункта — 10 спредов: не скальпинг
+    assert not run_ar(daily(5, tp=102.0)).get("scalping").triggered
+    # тейк 0.5 пункта = 2.5 спреда — скальпинг
+    assert run_ar(daily(5, tp=100.5)).get("scalping").triggered
+
+
+def test_martingale_needs_risk_and_catches_doubling() -> None:
+    losses = daily(6, r=-1.0)
+    doubling = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
+    assert run_ar(losses, risk=doubling).get("martingale").triggered
+    flat = run_ar(losses, risk=[1.0] * 6).get("martingale")
+    assert flat.triggered is False
+    # анти-мартингейл: риск растёт после побед — разрешено
+    wins = daily(6, r=1.0)
+    assert run_ar(wins, risk=doubling).get("martingale").triggered is False
+    # убыток уменьшил баланс → риск чуть меньше: это не мартингейл
+    shrinking = [1.0, 0.99, 0.98, 0.97, 0.96, 0.95]
+    assert run_ar(losses, risk=shrinking).get("martingale").triggered is False
+
+
+def test_grid_and_averaging_against_position() -> None:
+    step = dt.timedelta(minutes=5)
+    grid = [trade(i, entry=100.0 - 5 * i, start=i * step, hold=7200) for i in range(4)]
+    res = run_ar(grid)
+    assert res.get("grid").triggered
+    assert res.get("averaging").triggered
+    # пирамидинг в прибыль (каждый вход лучше прошлого) — разрешён
+    pyramid = [trade(i, entry=100.0 + 5 * i, start=i * step, hold=7200) for i in range(4)]
+    res = run_ar(pyramid)
+    assert not res.get("grid").triggered
+    assert not res.get("averaging").triggered
+    # те же входы, но позиции не пересекаются во времени — не сетка
+    apart = [trade(i, entry=100.0 - 5 * i, start=i * dt.timedelta(hours=3)) for i in range(4)]
+    assert not run_ar(apart).get("grid").triggered
+
+
+def test_forbidden_family() -> None:
+    assert run_ar(daily(3), family="martingale").get("family").triggered
+    assert run_ar(daily(3), family="breakout").get("family").triggered is False
+
+
+def test_cli_check_trades_exits_1_on_reject(tmp_path: Path) -> None:
+    ok, bad = tmp_path / "ok.csv", tmp_path / "bad.csv"
+    write_trades_csv(daily(5), ok)
+    write_trades_csv([*daily(5), trade(9, sl=float("nan"))], bad)
+    runner = CliRunner()
+    res = runner.invoke(app, ["gates", "check-trades", str(ok)])
+    assert res.exit_code == 0, res.output
+    res = runner.invoke(app, ["gates", "check-trades", str(bad)])
+    assert res.exit_code == 1
+    assert "без стопа" in res.output
+
+
+# --- аудит --------------------------------------------------------------------------------
+
+
+def test_loss_to_win_flag() -> None:
+    assert audit.loss_to_win([1.0, 1.0, -4.0]).flagged
+    assert audit.loss_to_win([1.0, 1.0, -2.0]).flagged is False
+    assert audit.loss_to_win([1.0, 2.0]).flagged is None
+
+
+def test_streak_quantile_known_answers() -> None:
+    cal = np.arange(1000, 1300, dtype=np.int64)
+    all_losses = audit.streak_quantile(cal, -np.ones(cal.size), cal, n_paths=200, width=50)
+    assert all_losses == pytest.approx(50.0), "одни убытки — серия во весь путь"
+    alt = np.where(np.arange(cal.size) % 2 == 0, -1.0, 1.0)
+    assert audit.streak_quantile(cal, alt, cal, n_paths=200, width=50) <= 3.0
+    f = audit.streak_flag(20.0, 0.01, 0.10)
+    assert f.flagged
+    assert f.value == pytest.approx(0.2)
+    assert f.limit == pytest.approx(0.05)
+    assert audit.streak_flag(4.0, 0.01, 0.10).flagged is False
+
+
+# --- таблица сделок и CLI -----------------------------------------------------------------
+
+
+def test_trades_frame_moves_weekend_to_friday_and_keeps_costs() -> None:
+    sat = trade(1, start=dt.timedelta(days=5))  # 2024-03-09 — суббота
+    f = trades_frame([trade(0), sat], UTC_SERVER)
+    assert f["wd"].to_list() == [0, 4]
+    assert f["day"][1] == dt.date(2024, 3, 8).toordinal()
+    assert f["minute"][0] == 14 * 60
+    assert f["cost_r"][0] == pytest.approx(0.02)
+
+
+def test_cli_synth_reports_the_expected_answer(tmp_path: Path) -> None:
+    res = CliRunner().invoke(
+        app, ["gates", "synth", "noise", "--paths", "500", "--no-s3", "--out", str(tmp_path)]
+    )
+    assert res.exit_code == 0, res.output
+    assert "отклонена на S1" in res.output
+    assert "вердикт: отклонена" in res.output
+    assert (tmp_path / "gates.md").exists()

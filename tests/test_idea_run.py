@@ -23,6 +23,7 @@ from pbl.prop.engine import MCConfig
 from pbl.research import idea_eval, idea_report, idea_run, range_sweep, registry
 from pbl.research.idea_eval import pooled
 from pbl.research.range_sweep import Bundle, make_bundle
+from pbl.robustness.autoreject import AutoReject, AutoRejectInput
 
 BarsFactory = Callable[..., pl.DataFrame]
 ON = dt.date(2026, 10, 29)
@@ -43,6 +44,10 @@ def fast_grid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(idea_run, "grid", small_grid)
 
 
+def _no_reject(inp: AutoRejectInput) -> AutoReject:
+    return AutoReject(findings=(), n_trades=len(inp.trades))
+
+
 @pytest.fixture
 def relaxed(monkeypatch: pytest.MonkeyPatch) -> None:
     for mod, name, value in (
@@ -58,6 +63,7 @@ def relaxed(monkeypatch: pytest.MonkeyPatch) -> None:
         (idea_run, "MIN_DSR", 0.0),
         (idea_run, "MIN_INSTRUMENTS", 0),
         (idea_run, "HO_MIN_MEAN_R", -1e9),
+        (idea_run, "autoreject", _no_reject),  # случайные бары: стопы в баре входа, узкие окна
     ):
         monkeypatch.setattr(mod, name, value)
 
@@ -173,6 +179,7 @@ def opened(
             (idea_run, "MIN_DSR", 0.0),
             (idea_run, "MIN_INSTRUMENTS", 0),
             (idea_run, "HO_MIN_MEAN_R", -1e9),
+            (idea_run, "autoreject", _no_reject),
             (bands, "REQUIRED", ()),
             (idea_run, "grid", small_grid),
         ):
