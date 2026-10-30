@@ -12,6 +12,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+import pbl.robustness.walkforward as rwf
 from pbl.research import idea_eval as ev
 from pbl.research.range_sweep import TABLE_SCHEMA, Config, exit_grid
 from pbl.robustness.bands import DayStats
@@ -83,7 +84,7 @@ def window(a: D, b: D, c: D) -> WFWindow:
 def test_walk_forward_takes_the_best_train_sharpe_and_reports_its_test(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(ev, "WF_MIN_TRADES", 5)
+    monkeypatch.setattr(rwf, "WF_MIN_TRADES", 5)
     cal = np.arange(D(2025, 1, 1).toordinal(), D(2025, 3, 1).toordinal(), dtype=np.int64)
     rng = np.random.default_rng(3)
     steady = 0.1 + 0.05 * rng.standard_normal(len(cal))
@@ -105,7 +106,7 @@ def test_walk_forward_skips_configs_with_too_few_trades(monkeypatch: pytest.Monk
     r = np.column_stack([np.full(len(cal), 0.5), np.linspace(0, 1, len(cal))])
     n = np.column_stack([np.zeros(len(cal)), np.ones(len(cal))])
     w = window(D(2025, 1, 1), D(2025, 2, 1), D(2025, 2, 15))
-    monkeypatch.setattr(ev, "WF_MIN_TRADES", 5)
+    monkeypatch.setattr(rwf, "WF_MIN_TRADES", 5)
     (pick,) = ev.walk_forward(r, n, cal, ["empty", "busy"], [w])
     assert pick.key == "busy"
     n0 = np.zeros_like(n)

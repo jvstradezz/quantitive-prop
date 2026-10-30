@@ -1,0 +1,374 @@
+{
+  "strategy_id": "synth-single",
+  "verdict": "отклонена: лучший по Sharpe вариант не прошёл гейты IS (инструменты); holdout не открыт",
+  "splits": {
+    "first": "2019-01-01",
+    "cut": "2023-03-15",
+    "last": "2024-12-31"
+  },
+  "n_trials": 3,
+  "n_eff": 1,
+  "wfe": 0.7747096855790959,
+  "pbo": 0.0,
+  "candidates": [
+    {
+      "params": {
+        "lookback": 40,
+        "dow": "none"
+      },
+      "s1": {
+        "n": 1857.0,
+        "pf": 1.5696752927975315,
+        "mean_r": 0.2187129779213786,
+        "e15": 0.19371297792137854,
+        "cost_share": 0.18607214428857718,
+        "sharpe_daily": 0.3050468273818924,
+        "ok_n": 1.0,
+        "ok_pf": 1.0,
+        "ok_e15": 1.0,
+        "s1": 1.0
+      },
+      "dsr": 1.0,
+      "dsr_raw": 1.0,
+      "n_eff": 1,
+      "gates": {
+        "S1": true,
+        "WFE": true,
+        "DSR/PBO": true,
+        "чувствительность": true,
+        "годы": true,
+        "инструменты": false,
+        "фильтры": null,
+        "автоотказ": true
+      },
+      "sensitivity": [
+        {
+          "param": "lookback",
+          "factor": 0.8,
+          "value": 32,
+          "n": 1755,
+          "pf": 1.553221288515406
+        },
+        {
+          "param": "lookback",
+          "factor": 0.9,
+          "value": 36,
+          "n": 1801,
+          "pf": 1.564141414141414
+        },
+        {
+          "param": "lookback",
+          "factor": 1.1,
+          "value": 44,
+          "n": 1909,
+          "pf": 1.566182982491995
+        },
+        {
+          "param": "lookback",
+          "factor": 1.2,
+          "value": 48,
+          "n": 1953,
+          "pf": 1.5562408807534154
+        }
+      ],
+      "reject": [
+        {
+          "code": "no_stop",
+          "name": "сделка без стопа",
+          "triggered": false,
+          "detail": "у всех стоп",
+          "trade_ids": []
+        },
+        {
+          "code": "martingale",
+          "name": "мартингейл",
+          "triggered": null,
+          "detail": "нет риска сделок (у движка все сделки по 1R)",
+          "trade_ids": []
+        },
+        {
+          "code": "grid",
+          "name": "сетка",
+          "triggered": false,
+          "detail": "нет",
+          "trade_ids": []
+        },
+        {
+          "code": "averaging",
+          "name": "усреднение против позиции",
+          "triggered": false,
+          "detail": "нет",
+          "trade_ids": []
+        },
+        {
+          "code": "hft",
+          "name": "HFT",
+          "triggered": false,
+          "detail": "максимум сделок в день: 2; медиана удержания 5824 с",
+          "trade_ids": []
+        },
+        {
+          "code": "quick_strike",
+          "name": "Quick Strike (B2)",
+          "triggered": false,
+          "detail": "0% прибыли — сделки короче 30 с (0 сделок)",
+          "trade_ids": []
+        },
+        {
+          "code": "scalping",
+          "name": "тик-скальпинг",
+          "triggered": false,
+          "detail": "медиана удержания 97.1 мин; медианный тейк 33.3 спредов",
+          "trade_ids": []
+        },
+        {
+          "code": "family",
+          "name": "запрещённое семейство",
+          "triggered": false,
+          "detail": "«synthetic»",
+          "trade_ids": []
+        }
+      ]
+    },
+    {
+      "params": {
+        "lookback": 30,
+        "dow": "none"
+      },
+      "s1": {
+        "n": 1732.0,
+        "pf": 1.54375,
+        "mean_r": 0.2109699769053118,
+        "e15": 0.18596997690531175,
+        "cost_share": 0.19159292035398232,
+        "sharpe_daily": 0.2816278172798562,
+        "ok_n": 1.0,
+        "ok_pf": 1.0,
+        "ok_e15": 1.0,
+        "s1": 1.0
+      },
+      "dsr": 1.0,
+      "dsr_raw": 1.0,
+      "n_eff": 1,
+      "gates": {
+        "S1": true,
+        "WFE": true,
+        "DSR/PBO": true,
+        "чувствительность": true,
+        "годы": true,
+        "инструменты": false,
+        "фильтры": null,
+        "автоотказ": true
+      },
+      "sensitivity": [
+        {
+          "param": "lookback",
+          "factor": 0.8,
+          "value": 24,
+          "n": 1643,
+          "pf": 1.532162373145979
+        },
+        {
+          "param": "lookback",
+          "factor": 0.9,
+          "value": 27,
+          "n": 1685,
+          "pf": 1.530579643998174
+        },
+        {
+          "param": "lookback",
+          "factor": 1.1,
+          "value": 33,
+          "n": 1772,
+          "pf": 1.5693709582598472
+        },
+        {
+          "param": "lookback",
+          "factor": 1.2,
+          "value": 36,
+          "n": 1801,
+          "pf": 1.564141414141414
+        }
+      ],
+      "reject": [
+        {
+          "code": "no_stop",
+          "name": "сделка без стопа",
+          "triggered": false,
+          "detail": "у всех стоп",
+          "trade_ids": []
+        },
+        {
+          "code": "martingale",
+          "name": "мартингейл",
+          "triggered": null,
+          "detail": "нет риска сделок (у движка все сделки по 1R)",
+          "trade_ids": []
+        },
+        {
+          "code": "grid",
+          "name": "сетка",
+          "triggered": false,
+          "detail": "нет",
+          "trade_ids": []
+        },
+        {
+          "code": "averaging",
+          "name": "усреднение против позиции",
+          "triggered": false,
+          "detail": "нет",
+          "trade_ids": []
+        },
+        {
+          "code": "hft",
+          "name": "HFT",
+          "triggered": false,
+          "detail": "максимум сделок в день: 2; медиана удержания 5834 с",
+          "trade_ids": []
+        },
+        {
+          "code": "quick_strike",
+          "name": "Quick Strike (B2)",
+          "triggered": false,
+          "detail": "0% прибыли — сделки короче 30 с (0 сделок)",
+          "trade_ids": []
+        },
+        {
+          "code": "scalping",
+          "name": "тик-скальпинг",
+          "triggered": false,
+          "detail": "медиана удержания 97.2 мин; медианный тейк 33.3 спредов",
+          "trade_ids": []
+        },
+        {
+          "code": "family",
+          "name": "запрещённое семейство",
+          "triggered": false,
+          "detail": "«synthetic»",
+          "trade_ids": []
+        }
+      ]
+    },
+    {
+      "params": {
+        "lookback": 20,
+        "dow": "none"
+      },
+      "s1": {
+        "n": 1593.0,
+        "pf": 1.5298423423423417,
+        "mean_r": 0.20674827369742627,
+        "e15": 0.18174827369742622,
+        "cost_share": 0.1947432762836186,
+        "sharpe_daily": 0.26678780104943056,
+        "ok_n": 1.0,
+        "ok_pf": 1.0,
+        "ok_e15": 1.0,
+        "s1": 1.0
+      },
+      "dsr": 1.0,
+      "dsr_raw": 0.9999999999999989,
+      "n_eff": 1,
+      "gates": {
+        "S1": true,
+        "WFE": true,
+        "DSR/PBO": true,
+        "чувствительность": true,
+        "годы": true,
+        "инструменты": false,
+        "фильтры": null,
+        "автоотказ": true
+      },
+      "sensitivity": [
+        {
+          "param": "lookback",
+          "factor": 0.8,
+          "value": 16,
+          "n": 1540,
+          "pf": 1.514219576719576
+        },
+        {
+          "param": "lookback",
+          "factor": 0.9,
+          "value": 18,
+          "n": 1570,
+          "pf": 1.519258898098488
+        },
+        {
+          "param": "lookback",
+          "factor": 1.1,
+          "value": 22,
+          "n": 1610,
+          "pf": 1.539309683604985
+        },
+        {
+          "param": "lookback",
+          "factor": 1.2,
+          "value": 24,
+          "n": 1643,
+          "pf": 1.532162373145979
+        }
+      ],
+      "reject": [
+        {
+          "code": "no_stop",
+          "name": "сделка без стопа",
+          "triggered": false,
+          "detail": "у всех стоп",
+          "trade_ids": []
+        },
+        {
+          "code": "martingale",
+          "name": "мартингейл",
+          "triggered": null,
+          "detail": "нет риска сделок (у движка все сделки по 1R)",
+          "trade_ids": []
+        },
+        {
+          "code": "grid",
+          "name": "сетка",
+          "triggered": false,
+          "detail": "нет",
+          "trade_ids": []
+        },
+        {
+          "code": "averaging",
+          "name": "усреднение против позиции",
+          "triggered": false,
+          "detail": "нет",
+          "trade_ids": []
+        },
+        {
+          "code": "hft",
+          "name": "HFT",
+          "triggered": false,
+          "detail": "максимум сделок в день: 2; медиана удержания 5950 с",
+          "trade_ids": []
+        },
+        {
+          "code": "quick_strike",
+          "name": "Quick Strike (B2)",
+          "triggered": false,
+          "detail": "0% прибыли — сделки короче 30 с (0 сделок)",
+          "trade_ids": []
+        },
+        {
+          "code": "scalping",
+          "name": "тик-скальпинг",
+          "triggered": false,
+          "detail": "медиана удержания 99.2 мин; медианный тейк 33.3 спредов",
+          "trade_ids": []
+        },
+        {
+          "code": "family",
+          "name": "запрещённое семейство",
+          "triggered": false,
+          "detail": "«synthetic»",
+          "trade_ids": []
+        }
+      ]
+    }
+  ],
+  "holdout": null,
+  "s3": null
+}

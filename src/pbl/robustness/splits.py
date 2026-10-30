@@ -5,6 +5,9 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
+import numpy as np
+import numpy.typing as npt
+
 IS_FRACTION = 0.7
 WF_TRAIN_MONTHS, WF_TEST_MONTHS, WF_STEP_MONTHS = 24, 6, 6
 
@@ -61,3 +64,38 @@ def wf_windows(
             return out
         out.append(WFWindow(a, b, b, c))
         k += 1
+
+
+def weekdays(start: dt.date, end: dt.date) -> npt.NDArray[np.int64]:
+    """Дни Пн–Пт в [start, end) как ordinal (календарь дневных рядов)."""
+    days = np.arange(start.toordinal(), end.toordinal(), dtype=np.int64)
+    return days[(days - 1) % 7 < 5]
+
+
+@dataclass(frozen=True)
+class Splits:
+    """Хронология: IS — [first, cut), holdout — [cut, last]; общая для всех инструментов (D-032)."""
+
+    first: dt.date
+    last: dt.date
+    cut: dt.date
+
+    @classmethod
+    def from_range(cls, first: dt.date, last: dt.date, is_fraction: float = IS_FRACTION) -> Splits:
+        return cls(first, last, holdout_start(first, last, is_fraction))
+
+    @property
+    def cut_ord(self) -> int:
+        return self.cut.toordinal()
+
+    def calendar(self, start: dt.date, end: dt.date) -> npt.NDArray[np.int64]:
+        """Дни Пн–Пт серверного календаря в [start, end) как ordinal."""
+        return weekdays(start, end)
+
+    @property
+    def is_calendar(self) -> npt.NDArray[np.int64]:
+        return self.calendar(self.first, self.cut)
+
+    @property
+    def ho_calendar(self) -> npt.NDArray[np.int64]:
+        return self.calendar(self.cut, self.last + dt.timedelta(days=1))

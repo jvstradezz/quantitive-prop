@@ -56,20 +56,24 @@ from pbl.research.range_sweep import (
     variant_spec,
 )
 from pbl.research.variants import VariantLog
+from pbl.robustness.autoreject import AutoReject, AutoRejectInput, autoreject
 from pbl.robustness.bands import metrics
 from pbl.robustness.dsr import dsr_for_trials
 from pbl.robustness.pbo import PBOResult, pbo_cscv
 from pbl.robustness.splits import holdout_start, wf_windows
+from pbl.robustness.thresholds import (
+    HO_MIN_INSTRUMENT_TRADES,
+    HO_MIN_MEAN_R,
+    MAX_PBO,
+    MIN_DSR,
+    MIN_INSTRUMENT_TRADES,
+    MIN_INSTRUMENTS,
+    S3_MIN_P1,
+)
 from pbl.schemas import Trade
 
-MIN_DSR, MAX_PBO = 0.95, 0.2
-MIN_INSTRUMENTS, MIN_INSTRUMENT_TRADES, HO_MIN_INSTRUMENT_TRADES = 2, 30, 10
-S3_MIN_P1 = 0.30
-HO_MIN_MEAN_R = 0.0
-"""Чистое матожидание на holdout должно быть выше (S2, §4.6)."""
-
 GATES = ("S1", "WFE", "DSR/PBO", "чувствительность", "годы", "инструменты", "фильтр дня (OOS)")
-HOLDOUT_GATES = ("полоса MC", "E > 0", "инструменты", "фильтр дня (OOS)")
+HOLDOUT_GATES = ("полоса MC", "E > 0", "инструменты", "фильтр дня (OOS)", "автоотказ")
 
 
 @dataclass(frozen=True)
@@ -145,6 +149,7 @@ class HoldoutStage:
     trades: list[Trade]
     prop: PropReport | None
     s3_ok: bool | None
+    reject: AutoReject | None = None
 
     @property
     def passed(self) -> bool:
@@ -379,6 +384,9 @@ def run_holdout(bundles: dict[str, Bundle], stage: ISStage, p: RunParams) -> Hol
         "фильтр дня (OOS)": filt_ok,
     }
     trades = oos_trades(bundles, stage, cfg, p.run_id)
+    server = next(f for f in load_firms() if f.id == "fundednext").server_time
+    rej = autoreject(AutoRejectInput(trades, server, family="range_session"))
+    gates["автоотказ"] = not rej.rejected
     ho = [t for t in trades if t.sample == "HOLDOUT"]
     scan_r = float(res.stats["mean_r"] * res.n_trades)
     bt_r = float(sum(t.r_net for t in ho))
@@ -394,7 +402,7 @@ def run_holdout(bundles: dict[str, Bundle], stage: ISStage, p: RunParams) -> Hol
             for r in prop.rows
             if not math.isnan(r.stats.p1)
         )
-    return HoldoutStage(res, check, gap, gates, trades, prop, s3_ok)
+    return HoldoutStage(res, check, gap, gates, trades, prop, s3_ok, rej)
 
 
 # --- вердикт ------------------------------------------------------------------------------
