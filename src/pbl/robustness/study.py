@@ -39,7 +39,7 @@ class Study(Protocol):
 
     @property
     def period(self) -> tuple[dt.date, dt.date]:
-        """Первый и последний день данных (общие для всех инструментов, P-35)."""
+        """Первый и последний день данных (общие для всех инструментов, D-032)."""
         ...
 
     def trades(self, params: Params) -> list[Trade]:

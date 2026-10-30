@@ -13,6 +13,7 @@ import polars as pl
 
 from pbl.prop.io import write_trades_csv
 from pbl.prop.report import costs_section, program_table, write_report
+from pbl.research.idea_eval import FilterCheck
 from pbl.research.idea_run import (
     GATES,
     HOLDOUT_GATES,
@@ -23,7 +24,6 @@ from pbl.research.idea_run import (
     verdict,
 )
 from pbl.research.registry import advance
-from pbl.robustness.bands import DiffResult
 from pbl.schemas import IdeaCard
 from pbl.schemas.idea import IdeaStatus
 
@@ -38,13 +38,30 @@ def _f(x: float, spec: str = ".2f") -> str:
     return "—" if math.isnan(x) else format(x, spec)
 
 
-def _diff(d: DiffResult | None) -> str:
-    if d is None:
+def _check(fc: FilterCheck | None) -> str:
+    if fc is None or fc.diff is None:
         return "нет данных"
+    d = fc.diff
+    ci = "выше нуля" if d.holds else "включает ноль"
     return (
         f"разность mean R {d.diff:+.3f} (разрешённые {d.mean_a:+.3f}, "
-        f"запрещённые {d.mean_b:+.3f}), 90% [{d.low:+.3f}; {d.high:+.3f}] — "
-        f"{'держится' if d.holds else 'не держится'}"
+        f"запрещённые {d.mean_b:+.3f}), 90% интервал {ci} [{d.low:+.3f}; {d.high:+.3f}]; "
+        f"mean R × √n: с фильтром {fc.score_author:.2f}, без {fc.score_none:.2f} — "
+        f"{'держится' if fc.ok else 'не держится'}"
+    )
+
+
+def filter_answer(stage: ISStage, ho: HoldoutStage | None) -> str:
+    """Ответ на главный вопрос идеи: вердикт — только по OOS (VALIDATION §4.5)."""
+    if ho is not None:
+        key = stage.finalist.cfg.key if stage.finalist else "—"
+        return f"OOS, тесты WF + holdout, параметры финалиста `{key}`: {_check(ho.filt)}"
+    pre = next((c for c in stage.candidates if c.filt is not None), None)
+    if pre is None:
+        return "на OOS не проверялся: нет тестовых окон WF или ни один вариант не прошёл S1"
+    return (
+        f"предварительно, только тесты WF (holdout не открыт, вердикта нет), параметры "
+        f"`{pre.cfg.key}`: {_check(pre.filt)}"
     )
 
 
@@ -88,35 +105,35 @@ def candidates_table(stage: ISStage) -> list[str]:
 
 def filter_section(stage: ISStage, ho: HoldoutStage | None) -> list[str]:
     fg = stage.filter_grid
-    out = ["## 2. Фильтр дня недели (главный вопрос идеи)", ""]
-    if fg.height:
-        better = int(fg["allowed_better"].sum())
-        med_a = statistics.median(fg["mean_r_allowed"].drop_nulls().to_list())
-        med_f = statistics.median(fg["mean_r_forbidden"].drop_nulls().to_list())
-        out.append(
-            f"- IS, вся сетка: разрешённые корзины лучше запрещённых в {better} из {fg.height} "
-            f"сканов; медиана mean R {med_a:+.3f} против {med_f:+.3f}."
-        )
-    authors = [c for c in stage.candidates if c.cfg.filt == "author"]
-    for c in authors:
-        out.append(
-            f"- `{c.cfg.key}` на IS: {_diff(c.filt)}; Sharpe {c.row['sharpe_daily']:.3f} "
-            f"против {_f(c.twin_sharpe or math.nan, '.3f')} без фильтра."
-        )
-    if not authors:
-        out.append("- Среди лучших вариантов нет ни одного с фильтром автора.")
-    if ho is not None:
-        out.append(
-            f"- Holdout финалиста: {_diff(ho.filt)}; Sharpe {ho.sharpe:.3f}"
-            f" против {_f(ho.twin_sharpe if ho.twin_sharpe is not None else math.nan, '.3f')}"
-            " без фильтра."
-        )
-    out += [
+    out = [
+        "## 2. Фильтр дня недели (главный вопрос идеи)",
         "",
-        "Фильтр — гипотеза автора, а не параметр, подогнанный под нашу выборку: его честная "
-        "проверка возможна уже на IS (P-35); на holdout он смотрится один раз, с финалистом.",
+        f"**Ответ:** {filter_answer(stage, ho)}",
         "",
     ]
+    out += [
+        "Вердикт «держится» выносится только по OOS (тесты WF и holdout), IS служит для отбора "
+        "вариантов (D-032, VALIDATION §4.5).",
+        "",
+    ]
+    if fg.height:
+        out.append(
+            f"Сетка ({fg.height} сканов без фильтра), разрешённые корзины лучше запрещённых:"
+        )
+        for label, name in (("is", "IS (для отбора)"), ("oos", "OOS, тесты WF")):
+            col = f"allowed_better_{label}"
+            if col in fg.columns:
+                med_a = statistics.median(fg[f"mean_r_allowed_{label}"].drop_nulls().to_list())
+                med_f = statistics.median(fg[f"mean_r_forbidden_{label}"].drop_nulls().to_list())
+                out.append(
+                    f"- {name}: в {int(fg[col].sum())} из {fg.height} сканов; медиана mean R "
+                    f"{med_a:+.3f} против {med_f:+.3f}."
+                )
+        out.append("")
+    for c in stage.candidates:
+        if c.cfg.filt == "author":
+            out.append(f"- `{c.cfg.key}` на OOS (тесты WF): {_check(c.filt)}.")
+    out.append("")
     return out
 
 
@@ -199,7 +216,7 @@ def summary_markdown(stage: ISStage, ho: HoldoutStage | None, p: RunParams, fina
         "ордера живут до закрытия NY (23:00 сервера), сигналы на M1.",
         "- GER30 торгуется у FN с 10:15 сервера: окна Азии и Лондона для него не торгуемы, "
         "в корзину не входят.",
-        "- Допущения P-32…P-35 в `docs/DECISIONS.md` ждут ОК Nikita.",
+        "- Допущения D-029…D-032 в `docs/DECISIONS.md` приняты 2026-10-29.",
         "",
     ]
     return "\n".join(lines)
@@ -219,12 +236,7 @@ def chat_summary(stage: ISStage, ho: HoldoutStage | None, p: RunParams, final: s
             f"mean R {c.row['mean_r']:+.3f}, DSR {_f(c.dsr, '.2f')}; "
             + " ".join(f"{g} {mark(c.gates[g])}" for g in GATES)
         )
-    fg = stage.filter_grid
-    if fg.height:
-        lines.append(
-            f"Фильтр дня на IS: разрешённые лучше запрещённых в {int(fg['allowed_better'].sum())} "
-            f"из {fg.height} сканов."
-        )
+    lines.append(f"Фильтр дня, {filter_answer(stage, ho)}")
     if ho is not None:
         lines.append(
             "Holdout: "

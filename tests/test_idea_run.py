@@ -10,6 +10,7 @@ import dataclasses
 import datetime as dt
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
@@ -313,3 +314,36 @@ def test_cli_stops_without_data(tmp_path: Path) -> None:
     )  # fmt: skip
     assert res.exit_code == 1
     assert "нет данных" in res.output
+
+
+def test_the_day_filter_is_judged_on_oos_days_only(
+    bundles: dict[str, Bundle],
+    relaxed: None,
+    band_open: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§4.5: IS служит для отбора, вердикт по фильтру — только тесты WF и holdout."""
+    seen: list[tuple[str, list[int]]] = []
+    real = idea_eval.filter_check
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.append(("call", args[3].tolist()))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(idea_run, "filter_check", spy)
+    p = params(tmp_path)
+    st = idea_run.run_is(bundles, p)
+    assert seen, "кандидаты проверяются"
+    is_days = set(st.splits.is_calendar.tolist())
+    wf_days = set(idea_eval.oos_calendar(st.picks, st.splits).tolist())
+    for _, days in seen:
+        assert set(days) == wf_days
+    assert wf_days < is_days  # не вся история IS, только тестовые окна
+    before = len(seen)
+    ho = idea_run.run_holdout(bundles, st, p)
+    full = set(seen[before][1])
+    assert full == wf_days | set(st.splits.ho_calendar.tolist())
+    assert ho.filt is not None
+    assert "OOS" in idea_report.filter_answer(st, ho)
+    assert "holdout не открыт" in idea_report.filter_answer(st, None) or not st.candidates

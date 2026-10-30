@@ -117,4 +117,4 @@ history:
 
 **Счётчик вариантов:** `research/registry/variants/IDEA-0001.parquet`, до мутаций ожидаем 1 288 проб (280 конфигураций сетки × инструменты окна + корзина; GER30 в окна Азии и Лондона не входит) ([D-028](DECISIONS.md#принятые-решения)).
 
-**Запуск:** `uv run pbl idea run IDEA-0001 --start 2021-01-01 --end 2025-12-31 --update-card` (бары — `data/bars/<инструмент>/<год>/1m_utc.parquet`; без `--update-card` реестр не меняется). Отчёт — `reports/idea-0001-v1/` (`summary.md`, CSV, `chat.md` на 30 строк). Holdout открывается один раз, для финалиста; повторный запуск на той же версии откажет — поднимите `--version`.
+**Запуск:** `uv run pbl idea run IDEA-0001 --start 2021-01-01 --end 2025-12-31 --update-card` (бары — `data/bars/<инструмент>/<год>/1m_utc_candles.parquet`, их собирает `pbl data candles`; без `--update-card` реестр не меняется). Отчёт — `reports/idea-0001-v1/` (`summary.md`, CSV, `chat.md` на 30 строк). Holdout открывается один раз, для финалиста; повторный запуск на той же версии откажет — поднимите `--version`.

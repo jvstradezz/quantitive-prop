@@ -204,3 +204,68 @@ def test_finalist_holdout_reports_the_band_instruments_and_opening_date() -> Non
     assert res.per_instrument["B"][0] == 5
     assert set(res.band.bands) == {"mean_r", "max_dd", "win_rate", "pf"}
     assert res.stats["n"] == res.n_trades
+
+
+def test_oos_calendar_joins_wf_tests_and_optionally_the_holdout() -> None:
+    sp = ev.Splits(D(2025, 1, 6), D(2025, 3, 28), D(2025, 3, 3))
+    w1 = window(D(2025, 1, 6), D(2025, 2, 3), D(2025, 2, 10))
+    w2 = window(D(2025, 1, 13), D(2025, 2, 17), D(2025, 2, 24))
+    picks = [ev.WFPick(w, "k", 10, 1.0, 1.0, 5) for w in (w1, w2)]
+    wf = ev.oos_calendar(picks, sp)
+    assert wf.tolist() == sorted(set(wf.tolist()))
+    assert wf[0] == D(2025, 2, 3).toordinal()
+    assert wf[-1] == D(2025, 2, 21).toordinal()  # две недели теста, затем ещё неделя второго окна
+    both = ev.oos_calendar(picks, sp, with_holdout=True)
+    assert both[-1] == D(2025, 3, 28).toordinal()
+    assert len(both) == len(wf) + len(sp.ho_calendar)
+    assert len(ev.oos_calendar([], sp)) == 0
+
+
+def test_pooled_daystats_skips_days_outside_a_gappy_calendar() -> None:
+    mon = D(2025, 1, 6).toordinal()
+    tables: ev.Tables = {"c": {"A": table([(mon, 0, 1, 1.0, 1, 0), (mon + 1, 1, 1, 5.0, 1, 0)])}}
+    cal = np.array([mon, mon + 3], dtype=np.int64)  # вторник вне календаря
+    ds = ev.pooled_daystats(tables, "c", cal)
+    assert ds.r.tolist() == [1.0, 0.0]
+    assert ds.n.tolist() == [1.0, 0.0]
+
+
+def filter_tables(author: list[float], plain: list[float]) -> ev.Tables:
+    mon = D(2025, 1, 6).toordinal()
+    cfg = Config("ny30", "breakout", exit_grid()["rr_1_1"], "none")
+    key_none, key_author = cfg.key, f"{cfg.key[: -len('none')]}author"
+    return {
+        key_none: {"X": table([(mon + k, k, 1, r, 1, 0) for k, r in enumerate(plain)])},
+        key_author: {"X": table([(mon + k, k, 1, r, 1, 0) for k, r in enumerate(author)])},
+    }
+
+
+def test_filter_check_needs_better_buckets_and_a_filter_not_worse_than_no_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mon = D(2025, 1, 6).toordinal()
+    cal = np.arange(mon, mon + 5, dtype=np.int64)
+    # разрешённые корзины (пн, вт: лонг) приносят +1, запрещённая (чт лонг) — −1
+    long_t = table(
+        [(mon, 0, 1, 1.0, 1, 0), (mon + 1, 1, 1, 1.0, 1, 0), (mon + 3, 3, 1, -1.0, 1, 0)]
+    )
+    monkeypatch.setattr(
+        ev, "scan_kind", lambda b, cfg, kind: long_t if kind == "long" else long_t.clear()
+    )
+    bundle = cast(Any, SimpleNamespace(live=lambda cfg: True))
+    cfg = Config("ny30", "breakout", exit_grid()["rr_1_1"], "none")
+    good = ev.filter_check(
+        {"X": bundle}, filter_tables([1.0, 1.0], [1.0, 1.0, 0.0, -1.0]), cfg, cal, n_paths=200
+    )
+    assert good is not None
+    assert good.diff is not None
+    assert good.diff.diff == pytest.approx(2.0)
+    assert good.score_author == pytest.approx(2.0 / math.sqrt(2))
+    assert good.score_none == pytest.approx(1.0 / 2.0)
+    assert good.ok
+    worse = ev.filter_check(
+        {"X": bundle}, filter_tables([0.1, 0.1], [1.0, 1.0, 1.0, 1.0]), cfg, cal, n_paths=200
+    )
+    assert worse is not None
+    assert not worse.ok  # корзины лучше, но фильтр режет сделки и проигрывает по mean R × √n
+    assert ev.filter_check({"X": bundle}, filter_tables([1.0], [1.0]), cfg, cal[:0]) is None

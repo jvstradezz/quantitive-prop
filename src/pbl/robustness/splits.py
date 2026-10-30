@@ -1,4 +1,4 @@
-"""Хронологические разбиения: IS / holdout и окна walk-forward (VALIDATION §2, P-01, P-35)."""
+"""Хронологические разбиения: IS / holdout и окна walk-forward (VALIDATION §2, P-01, D-032)."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def weekdays(start: dt.date, end: dt.date) -> npt.NDArray[np.int64]:
 
 @dataclass(frozen=True)
 class Splits:
-    """Хронология: IS — [first, cut), holdout — [cut, last]; общая для всех инструментов (P-35)."""
+    """Хронология: IS — [first, cut), holdout — [cut, last]; общая для всех инструментов (D-032)."""
 
     first: dt.date
     last: dt.date

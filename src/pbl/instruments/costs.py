@@ -20,7 +20,7 @@ F64 = npt.NDArray[np.float64]
 
 SpreadMode = Literal["data", "typical", "worst", "conservative"]
 """`data` — спред из баров; `typical`/`worst` — из спеки по часу сервера; `conservative` —
-больший из спреда бара и typical спеки (DECISIONS P-33)."""
+больший из спреда бара и typical спеки (DECISIONS D-030)."""
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -30,7 +30,7 @@ class CostModel:
     """Настройки издержек прогона; стрессы — те же поля с другими значениями."""
 
     spread: SpreadMode = "conservative"
-    slip_spread_mult: float = 0.5  # проскальзывание market/stop-исполнений, доля typical (P-32)
+    slip_spread_mult: float = 0.5  # проскальзывание market/stop-исполнений, доля typical (D-029)
     slip_points: float | None = None  # фиксированное проскальзывание в пунктах вместо доли
     commission_mult: float = 1.0  # O-19: чувствительность ×2 (вход и выход)
     swap_mult: float = 1.0
