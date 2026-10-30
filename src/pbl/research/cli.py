@@ -151,3 +151,102 @@ def run(
         registry.save_card(card_after_run(card, stage, ho, p, final), path)
     typer.echo(chat_summary(stage, ho, p, final))
     typer.echo(f"отчёт: {report}")
+
+
+def search(
+    start: Annotated[str, typer.Option(help="YYYY-MM-DD")],
+    end: Annotated[str, typer.Option(help="YYYY-MM-DD включительно")],
+    instruments: Annotated[
+        str, typer.Option(help="символы через запятую (классы актива образуют корзины)")
+    ] = "NAS100,US30,SPX500,GER30",
+    campaign: Annotated[
+        str, typer.Option(help="id кампании = имя файла счётчика проб")
+    ] = "AUTO-0001",
+    mode: Annotated[
+        str, typer.Option(help="forward: выбор по первым месяцам IS, MC по остатку; is: всё на IS")
+    ] = "forward",
+    select_months: Annotated[int, typer.Option(help="месяцев окна выбора в режиме forward")] = 24,
+    is_fraction: Annotated[float, typer.Option(help="доля IS до holdout")] = 0.7,
+    paths: Annotated[int, typer.Option(help="путей MC (≥ 10 000 для решений)")] = 10_000,
+    seed: Annotated[int, typer.Option()] = 42,
+    max_scans: Annotated[int, typer.Option(help="бюджет векторных сканов за запуск")] = 50_000,
+    event_runs: Annotated[int, typer.Option(help="бюджет событийных бэктестов")] = 200,
+    mc_top: Annotated[int, typer.Option(help="сколько кандидатов считать в проп-MC")] = 20,
+    max_hours: Annotated[float, typer.Option(help="бюджет времени, часов")] = 6.0,
+    families: Annotated[
+        str | None, typer.Option(help="только эти семейства через запятую; по умолчанию все")
+    ] = None,
+    programs: Annotated[str, typer.Option(help="программы FN через запятую")] = "fn-stellar-2step",
+    sizes: Annotated[str, typer.Option(help="размеры счёта, $, через запятую")] = "25000",
+    tag: Annotated[
+        str, typer.Option(help="добавка к версии проб, если данные окна выбора изменились")
+    ] = "",
+    explore: Annotated[
+        bool, typer.Option(help="гейты только помечают, не отсеивают (разведка)")
+    ] = False,
+    full_top: Annotated[int, typer.Option(help="полный отчёт проп-MC для лучших N")] = 3,
+    dry_run: Annotated[bool, typer.Option(help="не записывать пробы в счётчик")] = False,
+    out: Annotated[
+        Path | None, typer.Option(help="папка отчёта; по умолчанию reports/search-…")
+    ] = None,
+    bars_root: Annotated[Path | None, typer.Option(help="data/bars по умолчанию")] = None,
+    directory: RegistryOpt = REGISTRY,
+) -> None:
+    """Автопоиск: семейства × выходы × фильтры → S1 → DSR/PBO → бэктест → проп-MC (M4)."""
+    from pbl.config import REPO_ROOT
+    from pbl.data.bars import load_bars
+    from pbl.data.candles import BARS_ROOT
+    from pbl.prop.engine import MCConfig
+    from pbl.research.search import Budget, SearchParams, run_search
+    from pbl.research.search_report import chat_summary, write_search_report
+    from pbl.research.search_space import family_grid
+    from pbl.research.variants import VariantConflict
+
+    if mode not in ("forward", "is"):
+        raise typer.BadParameter("mode: forward или is")
+    day0, day1 = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
+    symbols = [s.strip() for s in instruments.split(",") if s.strip()]
+    root = bars_root or BARS_ROOT
+    try:
+        bars = {s: load_bars(s, day0, day1, root=root) for s in symbols}
+    except FileNotFoundError as exc:
+        typer.echo(f"нет данных: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    grid = family_grid()
+    if families is not None:
+        want = {f.strip() for f in families.split(",")}
+        unknown = want - {f.family for f in grid}
+        if unknown:
+            raise typer.BadParameter(f"неизвестные семейства: {', '.join(sorted(unknown))}")
+        grid = [f for f in grid if f.family in want]
+    p = SearchParams(
+        day0,
+        day1,
+        campaign=campaign,
+        mode=mode,  # type: ignore[arg-type]
+        select_months=select_months,
+        is_fraction=is_fraction,
+        seed=seed,
+        n_paths=paths,
+        budget=Budget(max_scans, event_runs, mc_top, max_hours * 3600),
+        programs=tuple(x.strip() for x in programs.split(",")),
+        sizes_usd=tuple(int(x) for x in sizes.split(",")),
+        registry=directory,
+        tag=tag,
+        explore=explore,
+        families=grid,
+        mc=MCConfig(n_paths=paths, seed=seed),
+    )
+    try:
+        res = run_search(bars, p)
+    except VariantConflict as exc:
+        typer.echo(f"{exc}; задайте --tag", err=True)
+        raise typer.Exit(code=1) from exc
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    report_dir = out or REPO_ROOT / "reports" / f"search-{campaign.lower()}-{p.on}"
+    summary = write_search_report(res, report_dir, bars, full_top=full_top)
+    if not dry_run:
+        res.log.save()
+    typer.echo(chat_summary(res, summary))
