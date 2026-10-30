@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
@@ -28,50 +27,27 @@ from pbl.robustness.bands import (
     daystats,
     holdout_band,
 )
-from pbl.robustness.splits import WFWindow
+from pbl.robustness.splits import Splits as Splits
+from pbl.robustness.stats import instrument_edges as instrument_edges
+from pbl.robustness.stats import s1_stats as s1_stats
+from pbl.robustness.stats import series_sharpe as series_sharpe
+from pbl.robustness.stats import year_stability as year_stability
+from pbl.robustness.thresholds import MIN_PF, MIN_TRADES
+from pbl.robustness.thresholds import MIN_WFE as MIN_WFE
+from pbl.robustness.thresholds import SENS_PF as SENS_PF
+from pbl.robustness.thresholds import SENS_STEPS as SENS_STEPS
+from pbl.robustness.walkforward import WFPick as WFPick
+from pbl.robustness.walkforward import walk_forward as walk_forward
+from pbl.robustness.walkforward import wfe as wfe
 from pbl.strategies.range_session import Side
 
 F64 = npt.NDArray[np.float64]
 I64 = npt.NDArray[np.int64]
 
-# S1 (VALIDATION §3) и S2 (§4)
-MIN_TRADES, MIN_PF, COST_MULT = 200, 1.3, 1.5
-MIN_WFE = 0.5
-SENS_PF, SENS_STEPS = 1.15, (0.8, 0.9, 1.1, 1.2)
-MIN_YEAR_TRADES, YEAR_SHARE = 20, 0.5
-WF_MIN_TRADES = 100
-"""Минимум сделок в окне обучения, чтобы конфигурацию вообще рассматривать при отборе."""
-
 _ONE_SIDED: tuple[Side, ...] = ("long", "short")
 
 ALLOWED_BUCKETS = frozenset({(0, 1), (1, 1), (1, -1), (2, 1), (3, -1), (4, 1), (4, -1)})
 """(день недели, сторона), разрешённые фильтром автора; остальные корзины — запрещённые."""
-
-
-@dataclass(frozen=True)
-class Splits:
-    """Хронология: IS — [first, cut), holdout — [cut, last]; общая для всех инструментов (P-35)."""
-
-    first: dt.date
-    last: dt.date
-    cut: dt.date
-
-    @property
-    def cut_ord(self) -> int:
-        return self.cut.toordinal()
-
-    def calendar(self, start: dt.date, end: dt.date) -> I64:
-        """Дни Пн–Пт серверного календаря в [start, end) как ordinal."""
-        days = np.arange(start.toordinal(), end.toordinal(), dtype=np.int64)
-        return days[(days - 1) % 7 < 5]
-
-    @property
-    def is_calendar(self) -> I64:
-        return self.calendar(self.first, self.cut)
-
-    @property
-    def ho_calendar(self) -> I64:
-        return self.calendar(self.cut, self.last + dt.timedelta(days=1))
 
 
 Tables = dict[str, dict[str, pl.DataFrame]]
@@ -122,30 +98,7 @@ def daily_matrix(tables: Tables, keys: Sequence[str], calendar: I64) -> tuple[F6
     return r, n
 
 
-def series_sharpe(x: F64) -> float:
-    s = float(x.std(ddof=1)) if x.size > 1 else 0.0
-    return float(x.mean() / s) if s > 1e-12 else 0.0
-
-
 # --- S1 -----------------------------------------------------------------------------------
-
-
-def s1_stats(t: pl.DataFrame) -> dict[str, float]:
-    """Сделки пула → n, PF, mean R, E при издержках × 1.5, доля издержек от валовой."""
-    n = t.height
-    if n == 0:
-        return {"n": 0, "pf": 0.0, "mean_r": 0.0, "e15": 0.0, "cost_share": math.nan}
-    r = t["r_net"].to_numpy()
-    gross, cost = t["r_gross"].to_numpy(), t["cost_r"].to_numpy()
-    wins, losses = float(r[r > 0].sum()), -float(r[r < 0].sum())
-    g = float(gross.sum())
-    return {
-        "n": n,
-        "pf": wins / losses if losses > 0 else math.inf,
-        "mean_r": float(r.mean()),
-        "e15": float((gross - COST_MULT * cost).mean()),
-        "cost_share": float(cost.sum() / g) if g > 0 else math.nan,
-    }
 
 
 def s1_table(tables: Tables, configs: Sequence[Config], splits: Splits) -> pl.DataFrame:
@@ -180,65 +133,6 @@ def s1_table(tables: Tables, configs: Sequence[Config], splits: Splits) -> pl.Da
 # --- walk-forward -------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class WFPick:
-    window: WFWindow
-    key: str
-    n_train: int
-    train_r: float
-    test_r: float
-    n_test: int
-
-    @property
-    def train_per_year(self) -> float:
-        return self.train_r / self.window.train_years
-
-    @property
-    def test_per_year(self) -> float:
-        return self.test_r / self.window.test_years
-
-
-def walk_forward(
-    r: F64, n: F64, calendar: I64, keys: Sequence[str], windows: Sequence[WFWindow]
-) -> list[WFPick]:
-    """В каждом окне — лучшая по Sharpe обучения конфигурация (n ≥ WF_MIN_TRADES) и её тест."""
-    picks: list[WFPick] = []
-    for w in windows:
-        tr = (calendar >= w.train_start.toordinal()) & (calendar < w.train_end.toordinal())
-        te = (calendar >= w.test_start.toordinal()) & (calendar < w.test_end.toordinal())
-        if not tr.any() or not te.any():
-            continue
-        best, best_sr = -1, -math.inf
-        for j in range(len(keys)):
-            if n[tr, j].sum() < WF_MIN_TRADES:
-                continue
-            sr = series_sharpe(r[tr, j])
-            if sr > best_sr:
-                best, best_sr = j, sr
-        if best < 0:
-            continue
-        picks.append(
-            WFPick(
-                window=w,
-                key=keys[best],
-                n_train=int(n[tr, best].sum()),
-                train_r=float(r[tr, best].sum()),
-                test_r=float(r[te, best].sum()),
-                n_test=int(n[te, best].sum()),
-            )
-        )
-    return picks
-
-
-def wfe(picks: Sequence[WFPick]) -> float:
-    """WFE = годовая доходность тестов / годовая доходность обучений по склейке окон (§4)."""
-    if not picks:
-        return math.nan
-    train = sum(p.train_r for p in picks) / sum(p.window.train_years for p in picks)
-    test = sum(p.test_r for p in picks) / sum(p.window.test_years for p in picks)
-    return test / train if train > 0 else math.nan
-
-
 def pooled_daystats(tables: Tables, key: str, calendar: I64) -> DayStats:
     t = pooled(tables, key, int(calendar[0]), int(calendar[-1]) + 1)
     return daystats(calendar, t["day"].to_numpy(), t["r_net"].to_numpy())
@@ -260,37 +154,6 @@ def wf_daystats(tables: Tables, picks: Sequence[WFPick], splits: Splits) -> DayS
 
 
 # --- проверки финалиста на IS -------------------------------------------------------------
-
-
-def year_stability(t: pl.DataFrame) -> tuple[bool, pl.DataFrame]:
-    """E > 0 минимум в 2/3 лет, где ≥ 20 сделок; ни один год не даёт > 50% чистой прибыли (P-05)."""
-    if t.is_empty():
-        return False, pl.DataFrame()
-    years = t.with_columns(
-        pl.col("day")
-        .map_elements(lambda d: dt.date.fromordinal(d).year, return_dtype=pl.Int64)
-        .alias("year")
-    )
-    by = (
-        years.group_by("year")
-        .agg(pl.len().alias("n"), pl.col("r_net").sum().alias("sum_r"), pl.col("r_net").mean())
-        .sort("year")
-    )
-    counted = by.filter(pl.col("n") >= MIN_YEAR_TRADES)
-    if counted.is_empty():
-        return False, by
-    share_ok = True
-    total = float(by["sum_r"].sum())
-    if total > 0:
-        share_ok = float(by["sum_r"].to_numpy().max()) / total <= YEAR_SHARE
-    pos = int((counted["r_net"] > 0).sum())
-    return (pos >= math.ceil(2 / 3 * counted.height) and share_ok), by
-
-
-def instrument_edges(t: pl.DataFrame) -> dict[str, tuple[int, float]]:
-    """Инструмент → (сделок, mean R)."""
-    g = t.group_by("symbol").agg(pl.len().alias("n"), pl.col("r_net").mean().alias("m"))
-    return {row["symbol"]: (row["n"], row["m"]) for row in g.iter_rows(named=True)}
 
 
 def perturbations(cfg: Config) -> list[tuple[str, Config]]:

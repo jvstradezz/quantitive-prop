@@ -60,13 +60,16 @@ from pbl.robustness.bands import DayStats, DiffResult, metrics
 from pbl.robustness.dsr import dsr_for_trials
 from pbl.robustness.pbo import PBOResult, pbo_cscv
 from pbl.robustness.splits import holdout_start, wf_windows
+from pbl.robustness.thresholds import (
+    HO_MIN_INSTRUMENT_TRADES,
+    HO_MIN_MEAN_R,
+    MAX_PBO,
+    MIN_DSR,
+    MIN_INSTRUMENT_TRADES,
+    MIN_INSTRUMENTS,
+    S3_MIN_P1,
+)
 from pbl.schemas import Trade
-
-MIN_DSR, MAX_PBO = 0.95, 0.2
-MIN_INSTRUMENTS, MIN_INSTRUMENT_TRADES, HO_MIN_INSTRUMENT_TRADES = 2, 30, 10
-S3_MIN_P1 = 0.30
-HO_MIN_MEAN_R = 0.0
-"""Чистое матожидание на holdout должно быть выше (S2, §4.6)."""
 
 GATES = ("S1", "WFE", "DSR/PBO", "чувствительность", "годы", "инструменты", "фильтр дня")
 HOLDOUT_GATES = ("полоса MC", "E > 0", "инструменты", "фильтр дня")
