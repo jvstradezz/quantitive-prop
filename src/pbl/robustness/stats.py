@@ -30,6 +30,16 @@ def series_sharpe(x: F64) -> float:
     return float(x.mean() / s) if s > 1e-12 else 0.0
 
 
+def moments(x: F64) -> dict[str, float]:
+    """Sharpe (ddof=1), асимметрия и эксцесс (нормальное = 3) дневного ряда — вход DSR."""
+    sr = series_sharpe(x)
+    sd = float(x.std(ddof=0)) if x.size else 0.0
+    if sd <= 1e-12:
+        return {"sharpe": sr, "skew": 0.0, "kurt": 3.0}
+    z = (x - x.mean()) / sd
+    return {"sharpe": sr, "skew": float(np.mean(z**3)), "kurt": float(np.mean(z**4))}
+
+
 def s1_stats(t: pl.DataFrame) -> dict[str, float]:
     """Сделки → n, PF, mean R, E при издержках × 1.5, доля издержек от валовой (D-025)."""
     n = t.height

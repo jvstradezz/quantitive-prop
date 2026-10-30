@@ -11,12 +11,14 @@ from pbl.config import REPO_ROOT, validate_all
 from pbl.data.cli import data_app
 from pbl.engine.cli import engine_app
 from pbl.research.cli import idea_app
+from pbl.robustness.cli import gates_app
 
 app = typer.Typer(help="Quantitive prop: конвейер стратегий и пропов", no_args_is_help=True)
 
 app.add_typer(data_app, name="data")
 app.add_typer(engine_app, name="engine")
 app.add_typer(idea_app, name="idea")
+app.add_typer(gates_app, name="gates")
 
 
 @app.callback()

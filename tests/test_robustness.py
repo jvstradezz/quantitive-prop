@@ -181,7 +181,7 @@ def _random_days(n: int, mean: float, seed: int) -> tuple[np.ndarray, np.ndarray
     return day, r
 
 
-def test_holdout_band_accepts_same_process_and_rejects_a_much_better_one() -> None:
+def test_holdout_band_accepts_same_process_and_flags_a_much_better_one() -> None:
     cal = np.arange(600, dtype=np.int64)
     day, r = _random_days(600, 0.1, seed=1)
     src = daystats(cal, day, r)
@@ -191,8 +191,13 @@ def test_holdout_band_accepts_same_process_and_rejects_a_much_better_one() -> No
     ok = holdout_band(src, same, n_paths=2000, seed=7)
     assert ok.passed
     assert ok.width == 250
-    bad = holdout_band(src, better, n_paths=2000, seed=7)
-    assert not bad.bands["mean_r"].inside
+    good = holdout_band(src, better, n_paths=2000, seed=7)
+    assert not good.bands["mean_r"].inside
+    assert good.passed, "лучше полосы — не отказ (D-029)"
+    assert "mean_r" in good.better
+    worse = daystats(cal_h, *_random_days(250, -0.4, seed=4))
+    bad = holdout_band(src, worse, n_paths=2000, seed=7)
+    assert bad.bands["mean_r"].worse
     assert not bad.passed
     again = holdout_band(src, same, n_paths=2000, seed=7)
     assert again.bands["mean_r"].low == ok.bands["mean_r"].low, "фиксированный seed"

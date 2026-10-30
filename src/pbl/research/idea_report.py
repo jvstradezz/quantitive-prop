@@ -128,14 +128,14 @@ def holdout_section(ho: HoldoutStage) -> list[str]:
         f"Открыт {r.opened_at}; сделок {r.n_trades}; расхождение быстрого скана и событийного "
         f"бэктеста по сумме R: {ho.scan_vs_backtest:.1%}.",
         "",
-        "| Метрика | Holdout | 5% | 95% | В полосе |",
+        "| Метрика | Holdout | 5% | 95% | Не хуже полосы |",
         "|---|---|---|---|---|",
     ]
     for k, b in r.band.bands.items():
         mand = " (обязательная)" if k in ("mean_r", "max_dd") else ""
         out.append(
             f"| {k}{mand} | {_f(b.observed, '.3f')} | {_f(b.low, '.3f')} | "
-            f"{_f(b.high, '.3f')} | {mark(b.inside)} |"
+            f"{_f(b.high, '.3f')} | {mark(not b.worse)} |"
         )
     out += ["", "| Инструмент | Сделок | mean R |", "|---|---|---|"]
     out += [f"| {s} | {n} | {m:+.3f} |" for s, (n, m) in sorted(r.per_instrument.items())]

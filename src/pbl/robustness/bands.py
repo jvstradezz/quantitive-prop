@@ -21,6 +21,8 @@ LOW_Q, HIGH_Q = 5.0, 95.0
 METRICS = ("mean_r", "max_dd", "win_rate", "pf")
 REQUIRED = ("mean_r", "max_dd")
 """Обязательные метрики полосы: `mean R` и `max DD` (P-02); win rate и PF — в отчёт."""
+WORSE_IS_HIGHER = frozenset({"max_dd"})
+"""У каких метрик плохая сторона — выше полосы; у остальных — ниже (D-029)."""
 
 
 @dataclass(frozen=True)
@@ -93,10 +95,21 @@ class Band:
     observed: float
     low: float
     high: float
+    worse_is_higher: bool = False
 
     @property
     def inside(self) -> bool:
         return self.low <= self.observed <= self.high
+
+    @property
+    def worse(self) -> bool:
+        """За полосой с плохой стороны: holdout хуже 95% псевдо-историй."""
+        return self.observed > self.high if self.worse_is_higher else self.observed < self.low
+
+    @property
+    def better(self) -> bool:
+        """За полосой с хорошей стороны: не отказ, а повод проверить (инструкции §1, D-029)."""
+        return not self.inside and not self.worse
 
 
 @dataclass(frozen=True)
@@ -108,7 +121,13 @@ class BandResult:
 
     @property
     def passed(self) -> bool:
-        return all(self.bands[k].inside for k in REQUIRED)
+        """Гейт: ни одна обязательная метрика не хуже полосы (D-029; раньше — строго внутри)."""
+        return not any(self.bands[k].worse for k in REQUIRED)
+
+    @property
+    def better(self) -> list[str]:
+        """Обязательные метрики лучше полосы — флаг аудита «holdout подозрительно хорош»."""
+        return [k for k in REQUIRED if self.bands[k].better]
 
 
 def holdout_band(
@@ -118,10 +137,15 @@ def holdout_band(
     n_paths: int = 10_000,
     seed: int = 42,
     block: float | None = None,
+    nested: bool = True,
 ) -> BandResult:
     """Псевдо-holdout той же длины (в днях), что `observed`, из дней `source` (WF-test).
 
-    Проходит, если `mean R` и `max DD` наблюдаемого holdout внутри 5–95% (P-02).
+    Проходит, если `mean R` не ниже 5% и `max DD` не выше 95% псевдо-историй (P-02, D-029).
+    `nested` (D-030): каждый путь берётся из своей бутстрэп-копии источника, поэтому полоса
+    учитывает и шум оценки по WF-test, а не только шум holdout. Синтетика `edge`, 100 seed:
+    хорошая стратегия не проходила полосу в 13% случаев без вложенности и в 11% с ней
+    (номинал двух односторонних 5% хвостов — ≤ 10%).
     """
     if len(source) < 20:
         raise ValueError("мало дней в источнике бутстрэпа")
@@ -129,13 +153,16 @@ def holdout_band(
     rng = np.random.default_rng(seed)
     blk = block_length(source.r, block)
     idx = stationary_indices(rng, len(source), n_paths, width, blk)
+    if nested:
+        outer = stationary_indices(rng, len(source), n_paths, len(source), blk)
+        idx = np.take_along_axis(outer, idx.astype(np.int64), axis=1).astype(np.int32)
     sim = _path_metrics(source, idx)
     obs = metrics(observed)
     bands: dict[str, Band] = {}
     for k in METRICS:
         v = sim[k][np.isfinite(sim[k])]
         lo, hi = np.percentile(v, [LOW_Q, HIGH_Q]) if v.size else (np.nan, np.nan)
-        bands[k] = Band(observed=obs[k], low=float(lo), high=float(hi))
+        bands[k] = Band(obs[k], float(lo), float(hi), worse_is_higher=k in WORSE_IS_HIGHER)
     return BandResult(bands=bands, block=blk, n_paths=n_paths, width=width)
 
 
